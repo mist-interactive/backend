@@ -1,0 +1,24 @@
+# Default ignore everything
+*
+/**
+
+# Whitelist
+## settings
+!/.gitignore
+!/.editorconfig
+!/.github/
+!/.github/**
+
+## docs
+!/README.md
+
+## frontend
+
+## backend
+
+## database
+
+
+# extra-safety re-ignore
+.env
+*.local
