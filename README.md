@@ -124,6 +124,16 @@ type LoginRequest struct {
 
 Here we only check the length constraints before trying to fetch user info with the given input, using `bcrypt` to check whether the given password matches the hashed one in the database if the user was founf, and returns a response. Currently the response is a `OK` status with the User struct as the body of the response, we'll update to a token in the near future.
 
+### Testing
+
+Testing can be run from the terminal:
+
+```
+`./backend/scripts/run_tests.sh`
+```
+
+It spins up the db container, exposing the DB_PORT on localhost to grant local access to the db for testing (via `docker-compose.override.yml`), runs the tests defined in the various `*_test.go`-files, and brings the db container back down.
+
 ---
 
 ## Resources
