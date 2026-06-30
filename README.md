@@ -61,7 +61,30 @@ choice".
 
 ## Instructions
 
-clone the repo, and run `make` to launch, visit localhost:443 to try it out
+To test out, you must create a `secrets/` folder parallell to the root of the repo, and make a file called `postgres_user_pw.txt` containing the password used to connect to the DB. You can then launch the backend and database containers with the command
+
+```
+docker compose up
+```
+
+which should result in:
+
+- both containers launching
+- the backend establishing a connection to the DB
+- the backend creating the `users` table in the DB, as specified in `backend/db/migrations/`
+- the backend starting to serve a dummy endpoint at `/api/health`
+
+You can test the dummy endpoint by going to `localhost:8080/api/health` in a browser, or running
+
+```
+curl -i http://localhost:8080/api/health
+```
+
+It should return a status 200 OK response with the body
+
+```
+{"status": "ok", "message": "Go backend is alive!"}
+```
 
 ---
 
