@@ -79,19 +79,50 @@ which should result in:
 - both containers launching
 - the backend establishing a connection to the DB
 - the backend creating the `users` table in the DB, as specified in `backend/db/migrations/`
-- the backend starting to serve a dummy endpoint at `/api/health`
+- the backend registering handlers for endpoints
+  - `/api/register`
+  - `/api/login`
 
-You can test the dummy endpoint by going to `localhost:8080/api/health` in a browser, or running
+### Endpoints
+
+#### `register`
+
+The register endpoint is expecting a request with type `application/json`, as defined in `handlers/register.go`:
 
 ```
-curl -i http://localhost:8080/api/health
+type RegisterRequest struct {
+	Username string `json:"username" validate:"required,min=3,max=50,username_safety"`
+	Password string `json:"password" validate:"required,min=8,max=72,password_complexity"`
+	Email    string `json:"email" validate:"required,email,max=255"`
+}
 ```
 
-It should return a status 200 OK response with the body
+This means all fields are required, there are length constraints on all, the keys must be exactly as stated in the tag string, and username and password have additional constraints that are checked before trying to add a user to the database, named `username_safety`, and `password complexity`. These constraints, and JSON conformity, is checked by the `DecodeAndValidate` function, which is run before trying to add the new user to the DB, with any missed constraints passed back to the requester in the body of the `BadRequest` response.
+
+If input passes validation, a password hash is generated using the `bcrypt` algorithm, which is what is stored in the database.
+
+We use Bun ORM to try to insert the new user to the database, however both `username` and `email` fields have the unique constraint, so insertion may be expected to fail on duplicate input to an existing account for either field, and that error is returned to the requester as a `Conflict` response.
+
+##### `username_safety`
+
+This checks that the username contains only alphanumerics, underscores and dashes
+
+##### `password complexity`
+
+This checks that the password contains characters from at least two of the categories `[uppercase, lowercase, digit, special]`.
+
+#### `login`
+
+The login endpoint expects a request with type `application/json`, as defined in `handlers/auth.go`:
 
 ```
-{"status": "ok", "message": "Go backend is alive!"}
+type LoginRequest struct {
+	Username string `json:"username" validate:"required,min=3,max=50"`
+	Password string `json:"password" validate:"required,min=8,max=72"`
+}
 ```
+
+Here we only check the length constraints before trying to fetch user info with the given input, using `bcrypt` to check whether the given password matches the hashed one in the database if the user was founf, and returns a response. Currently the response is a `OK` status with the User struct as the body of the response, we'll update to a token in the near future.
 
 ---
 
