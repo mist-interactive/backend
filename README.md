@@ -32,9 +32,16 @@ We've creating a web-accessible multiplayer game.
 
 #### Database Schema
 
-◦ Visual representation or description of the database structure.
-◦ Tables/collections and their relationships.
-◦ Key fields and data types.
+```mermaid
+erDiagram
+    users {
+        serial id PK "SERIAL, NOT NULL"
+        varchar username UK "NOT NULL"
+        varchar email UK "NOT NULL"
+        varchar password_hash
+        timestamp created_at
+    }
+```
 
 #### Features List
 
@@ -61,7 +68,7 @@ choice".
 
 ## Instructions
 
-To test out, you must create a `secrets/` folder parallell to the root of the repo, and make a file called `postgres_user_pw.txt` containing the password used to connect to the DB. You can then launch the backend and database containers with the command
+To test out, you must create a `secrets/` folder parallell to the root of the repo, and make a file called `postgres_user_pw.txt` containing the password used to connect to the DB, and fill out `.env.example` into `.env`. You can then launch the backend and database containers with the command
 
 ```
 docker compose up
