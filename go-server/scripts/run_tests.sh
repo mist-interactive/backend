@@ -1,7 +1,15 @@
 #!/bin/bash
 set -e
+DB_CONTAINER_ID=$(docker compose ps -q database)
+if [ -n "$DB_CONTAINER_ID" ] && [ "$(docker inspect -f '{{.State.Running}}' "$DB_CONTAINER_ID" 2>/dev/null)" == "true" ]; then
+    DB_WAS_ALREADY_RUNNING=true
+    echo "Database container is already running. Skipping startup..."
+else
+    DB_WAS_ALREADY_RUNNING=false
+    echo "Database container is not running. Spinning it up..."
+    docker compose up -d database
+fi
 
-docker compose up -d database
 echo -n "Waiting for database to pass health checks..."
 until [ "$(docker inspect -f '{{.State.Health.Status}}' $(docker compose ps -q database))" == "healthy" ]; do
     printf '.'
@@ -11,7 +19,9 @@ echo -e "\nDatabase is accepting connections, running tests..."
 
 cleanup() {
   echo "Cleaning up..."
-  docker compose stop database
+  if [ "$DB_WAS_ALREADY_RUNNING" = false ]; then
+    docker compose stop database
+  fi
 }
 trap cleanup EXIT
 
