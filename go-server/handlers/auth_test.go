@@ -8,12 +8,14 @@ import (
 	"testing"
 
 	"dbBackend/handlers"
+	"dbBackend/internal/testutil"
 )
 
 func TestLogin(t *testing.T) {
-	testUser := makeTestUser(t)
-	setCleanup(t, testUser)
-	registerUser(t, testUser)
+	t.Helper()
+	testUser, cleanup := testutil.MakeTestUser(t, testDB)
+	t.Cleanup(cleanup)
+	testutil.RegisterUser(t, testUser, testDB)
 	handler := &handlers.AuthHandler{DB: testDB}
 
 	tests := []struct {
