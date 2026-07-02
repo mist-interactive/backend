@@ -1,4 +1,4 @@
 .env
 *.local
 *.sh
-!backend/scripts/run_tests.sh
+!go-server/scripts/run_tests.sh
