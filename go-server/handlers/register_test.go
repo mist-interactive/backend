@@ -3,6 +3,7 @@ package handlers_test
 import (
 	"bytes"
 	"dbBackend/handlers"
+	"dbBackend/internal/testutil"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -19,9 +20,8 @@ func TestTryRegister_Integration(t *testing.T) {
 		{
 			name: "Success: new user was registered ",
 			setup: func(t *testing.T) handlers.RegisterRequest {
-				u := makeTestUser(t)
-				setCleanup(t, u)
-
+				u, cleanup := testutil.MakeTestUser(t, testDB)
+				t.Cleanup(cleanup)
 				return handlers.RegisterRequest{
 					Username: u.Username,
 					Email:    u.Email,
@@ -33,10 +33,9 @@ func TestTryRegister_Integration(t *testing.T) {
 		{
 			name: "Failure: try to register a copy of a user",
 			setup: func(t *testing.T) handlers.RegisterRequest {
-				u := makeTestUser(t)
-				registerUser(t, u)
-				setCleanup(t, u)
-
+				u, cleanup := testutil.MakeTestUser(t, testDB)
+				testutil.RegisterUser(t, u, testDB)
+				t.Cleanup(cleanup)
 				return handlers.RegisterRequest{
 					Username: u.Username,
 					Email:    u.Email,
@@ -48,11 +47,10 @@ func TestTryRegister_Integration(t *testing.T) {
 		{
 			name: "Failure: try to register a user with an email already in use",
 			setup: func(t *testing.T) handlers.RegisterRequest {
-				u := makeTestUser(t)
-				registerUser(t, u)
-				setCleanup(t, u)
-				newU := makeTestUser(t)
-
+				u, cleanup := testutil.MakeTestUser(t, testDB)
+				testutil.RegisterUser(t, u, testDB)
+				t.Cleanup(cleanup)
+				newU, _ := testutil.MakeTestUser(t, testDB)
 				return handlers.RegisterRequest{
 					Username: newU.Username,
 					Email:    u.Email,
