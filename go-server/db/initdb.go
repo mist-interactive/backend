@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"dbBackend/models"
-	"embed"
 	"fmt"
 	"io/fs"
 	"log"
@@ -19,12 +18,6 @@ import (
 	"github.com/uptrace/bun/migrate"
 	"golang.org/x/crypto/bcrypt"
 )
-
-// set up migrations
-//
-//go:embed migrations/*.sql
-var migrationFS embed.FS
-var Migrations = migrate.NewMigrations()
 
 func InitDB() (*bun.DB, error) {
 	_ = godotenv.Load("../.env")
