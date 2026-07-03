@@ -4,6 +4,7 @@ go 1.25.0
 
 require (
 	github.com/go-playground/validator/v10 v10.30.3
+	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/joho/godotenv v1.5.1
 	github.com/stretchr/testify v1.11.1
 	github.com/uptrace/bun v1.2.18
