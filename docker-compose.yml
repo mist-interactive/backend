@@ -22,6 +22,8 @@ services:
     build: ./go-server
     secrets:
       - postgres_user_pw
+      - jwt_private_key
+      - jwt_public_key
     env_file:
       - .env
     environment:
@@ -52,6 +54,10 @@ services:
 secrets:
   postgres_user_pw:
     file: ../secrets/postgres_user_pw.txt
+  jwt_private_key:
+    file: ../secrets/jwt_private.pem
+  jwt_public_key:
+    file: ../secrets/jwt_public.pem
 
 networks:
   db_network:

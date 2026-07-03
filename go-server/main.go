@@ -18,9 +18,9 @@ func main() {
 	defer postgres.Close()
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*20)
-	defer cancel()
 	err = db.RunMigrations(ctx, postgres)
 	if err != nil {
+		cancel()
 		log.Fatalf("%v\n", err)
 	}
 	cancel()
