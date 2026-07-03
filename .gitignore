@@ -2,3 +2,4 @@
 *.local
 *.sh
 !go-server/scripts/run_tests.sh
+linux64
