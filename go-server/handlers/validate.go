@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"reflect"
 	"regexp"
+	"strings"
 	"unicode"
 
 	"github.com/go-playground/validator/v10"
@@ -58,4 +60,18 @@ var validUsernameRegex = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
 func validateUsername(fl validator.FieldLevel) bool {
 	return validUsernameRegex.MatchString(fl.Field().String())
+}
+
+func GetValidationTag[T any](fieldName string, prefixToStrip string) string {
+	var zero T
+	typ := reflect.TypeOf(zero)
+	if typ.Kind() != reflect.Struct {
+		return ""
+	}
+	field, found := typ.FieldByName(fieldName)
+	if !found {
+		return ""
+	}
+	rawTag := field.Tag.Get("validate")
+	return strings.TrimPrefix(rawTag, prefixToStrip)
 }
