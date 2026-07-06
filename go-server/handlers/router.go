@@ -25,6 +25,10 @@ func RegisterRoutes(mux *http.ServeMux, db *bun.DB) {
 	authGuard := AuthRequired(db)
 	tokenHandler := &TokenHandler{PrivateKey: rsaKey}
 	mux.Handle("POST /api/renew", authGuard(http.HandlerFunc(tokenHandler.IssueToken)))
+
+	profileHandler := ProfileHandler{DB: db}
+	mux.Handle("GET /api/profile", authGuard(http.HandlerFunc(profileHandler.GetProfile)))
+	mux.Handle("PATCH /api/profile", authGuard(http.HandlerFunc(profileHandler.UpdateProfile)))
 }
 
 func GetPrivateKey() (*rsa.PrivateKey, error) {

@@ -37,21 +37,23 @@ func MakeTestUser(t *testing.T, testDB *bun.DB) (*models.User, func()) {
 		t.Fatal("Failed to generate unique username")
 	}
 
-	return &models.User{
-			Username: uniqueName,
-			Email:    uniqueName + "@testing.internal",
-			PWHash:   "$2b$12$SX55NTDU0FL4DrpQm5kq.OLKcDrrMnS6siaY3Z80.8ki5zagqx08m",
-		}, func() {
-			cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 3*time.Second)
-			defer cleanupCancel()
-			_, err := testDB.NewDelete().
-				Model((*models.User)(nil)).
-				Where("username = ?", uniqueName).
-				Exec(cleanupCtx)
-			if err != nil {
-				t.Logf("Warning: Failed to clean up test user %s: %v", uniqueName, err)
-			}
+	user := &models.User{
+		Username: uniqueName,
+		Email:    uniqueName + "@testing.internal",
+		PWHash:   "$2b$12$SX55NTDU0FL4DrpQm5kq.OLKcDrrMnS6siaY3Z80.8ki5zagqx08m",
+	}
+	cleanup := func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cleanupCancel()
+		_, err := testDB.NewDelete().
+			Model((*models.User)(nil)).
+			Where("id = ?", user.ID).
+			Exec(cleanupCtx)
+		if err != nil {
+			t.Logf("Warning: Failed to clean up test user %s: %v", uniqueName, err)
 		}
+	}
+	return user, cleanup
 }
 
 func RegisterUser(t *testing.T, u *models.User, testDB *bun.DB) {
