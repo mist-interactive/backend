@@ -43,14 +43,19 @@ To help keep the server maintainable, code is internally divided into a few pack
 
 #### Database Schema
 
+The schema is defined by migration files in the `db/migrations` folder, which are run in numerical order during the initialization of the backend <-> DB connection.
+
 ```mermaid
 erDiagram
     users {
-        bigserial id PK "SERIAL, NOT NULL"
-        varchar username UK "NOT NULL"
-        varchar email UK "NOT NULL"
-        varchar password_hash
-        timestamp created_at
+      bigserial id PK "SERIAL, NOT NULL"
+      varchar username UK "NOT NULL"
+      varchar email UK "NOT NULL"
+      varchar password_hash
+      timestamp created_at
+      int total_wins
+      int total_losses
+      text avatar_url
     }
     sessions {
       bigserial id PK "SERIAL, NOT_NULL"
@@ -59,7 +64,17 @@ erDiagram
       timestamp created_at
       timestamp expires_at
     }
+    matches {
+      bigserial id PK "SERIAL, NOT NULL"
+      bigint player_one FK "NOT NULL"
+      bigint player_two FK "NOT NULL"
+      varchar result "player1_win, player2_win, draw, aborted"
+      timestamp started_at
+      timestamp finished_at
+    }
     users ||--o{ sessions : "has"
+    users ||--o{ matches : "participates as player_one"
+    users ||--o{ matches : "participates as player_two"
 ```
 
 ---
@@ -77,9 +92,16 @@ which should result in:
 - containers `database`, `caddy` and `backend` launching
 - the backend establishing a connection to the DB
 - the backend creating the `users` and `sessions` tables in the DB, as specified in `backend/db/migrations/`
-- the backend registering handlers for endpoints
-  - `/api/register`
-  - `/api/login`
+- the backend registering handlers for following endpoints
+  - Open to the public:
+    - `POST /api/register`
+    - `POST /api/login`
+  - Protected by requiring an active session cookie identifying the user:
+    - `GET /api/profile`
+    - `PATCH /api/profile`
+    - `GET /api/match-history`
+  - Protected by requiring a shared API key, known to backend and game server:
+    - `POST /api/internal/match-history`
 - the reverse proxy `caddy` exposing ports 8000 (HTTP) and 8443 (HTTPS), while backend and databse no longer expose any ports to the host network
 
 Functionality can be tested by accessing `https://localhost:8443/index.html`, which is a simple, static frontend that has register and login forms with live access to the database, so you can check the response a request generates.
@@ -124,6 +146,64 @@ type LoginRequest struct {
 ```
 
 Here we only check the length constraints before trying to fetch user info with the given input, using `bcrypt` to check whether the given password matches the hashed one in the database if the user was founf, and returns a response. Currently the response is a `OK` status with the User struct as the body of the response, we'll update to a token in the near future.
+
+### `profile`
+
+The `GET /api/profile` endpoint is for getting the logged-in users' (full) profile, and requires an active session cookie. It returns a struct defined in `profile.go`:
+
+```
+type ProfileResponse struct {
+	ID          int64  `json:"id"`
+	Username    string `json:"username"`
+	Email       string `json:"email"`
+	TotalWins   int32  `json:"total_wins"`
+	TotalLosses int32  `json:"total_losses"`
+	AvatarURL   string `json:"avatar_url"`
+}
+```
+
+Only the `username` and `email` are editable by user. to apply changes, a call to `PATCH /api/profile` is called with the payload
+
+```
+type UpdateProfileInput struct {
+	Username *string `json:"username,omitempty"`
+	Email    *string `json:"email,omitempty"`
+}
+```
+
+This allows updating either one of the fields or both, depending on what is passed as the payload. The backend runs the same validation checks on username and email as during registration before checking availability in the DB, and can return the same types of errors: `BadRequest` if constrains aren't met, or `Conflict` if username or email is already taken.
+
+### `match-history`
+
+The `GET /api/match-history` endpoint is for getting the logged-in users' match history (currently full history, ordered by newest `StartedAt` first) and requires an active session cookie. It returns a json-array of `MatchRecord` structs, defined in `models/match.go`:
+
+```
+type MatchRecord struct {
+  bun.BaseModel `bun:"table:matches"`
+
+  ID         int64      `json:"id" bun:"id,pk,autoincrement"`
+  Player1    int64      `json:"player_one" bun:"player_one,notnull"`
+  Player2    int64      `json:"player_two" bun:"player_two,notnull"`
+  Result     string     `json:"result" bun:"result,notnull"`
+  StartedAt  time.Time  `json:"started_at" bun:"started_at,default:current_timestamp"`
+  FinishedAt *time.Time `json:"finished_at" bun:"finished_at"`
+}
+```
+
+The `POST /api/internal/match-history` is how the game-server can write a match result into the database. It expects an input struct defined in `match-history.go`:
+
+```
+type MatchInput struct {
+	Player1   int64     `json:"player_one" validate:"required"`
+	Player2   int64     `json:"player_two" validate:"required"`
+	Result    string    `json:"result" validate:"required,oneof=player1_win player2_win draw aborted"`
+	StartedAt time.Time `json:"started_at" validate:"required"`
+}
+```
+
+The `Result` field must be one of the four pre-defined options: `[player1_win player2_win draw aborted]`. For all results except `aborted`, FinishedAt is set as the timestamp it's written into the DB. The expected response code is 201 (`Created`), with the body containing the full `MatchRecord` struct.
+
+---
 
 ### Testing
 
