@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"bytes"
 	"crypto/rsa"
 	"fmt"
 	"log"
@@ -29,6 +30,16 @@ func RegisterRoutes(mux *http.ServeMux, db *bun.DB) {
 	profileHandler := ProfileHandler{DB: db}
 	mux.Handle("GET /api/profile", authGuard(http.HandlerFunc(profileHandler.GetProfile)))
 	mux.Handle("PATCH /api/profile", authGuard(http.HandlerFunc(profileHandler.UpdateProfile)))
+
+	matchHistoryHandler := MatchHistoryHandler{DB: db}
+	mux.Handle("GET /api/match-history", authGuard((http.HandlerFunc(matchHistoryHandler.GetHistory))))
+
+	apiKey, err := GetAPIKey()
+	if err != nil {
+		log.Fatalf("%v", err)
+	}
+	gameServerGuard := GameServerAuth(apiKey)
+	mux.Handle("POST /api/internal/match", gameServerGuard((http.HandlerFunc(matchHistoryHandler.PostHistory))))
 }
 
 func GetPrivateKey() (*rsa.PrivateKey, error) {
@@ -42,4 +53,13 @@ func GetPrivateKey() (*rsa.PrivateKey, error) {
 		return nil, fmt.Errorf("Critical: Failed to parse JWT private key layout: %v", err)
 	}
 	return signKey, nil
+}
+
+func GetAPIKey() (string, error) {
+	keyPath := os.Getenv("GAMESERVER_API_KEY_PATH")
+	keyBytes, err := os.ReadFile(keyPath)
+	if err != nil {
+		return "", fmt.Errorf("Critical: Failed to read API key file at %s: %v", keyPath, err)
+	}
+	return string(bytes.TrimSpace(keyBytes)), nil
 }

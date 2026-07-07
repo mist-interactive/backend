@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"crypto/subtle"
 	"dbBackend/models"
 	"net/http"
 
@@ -42,4 +43,17 @@ func AuthRequired(db *bun.DB) func(http.Handler) http.Handler {
 func UserFromContext(ctx context.Context) (*models.User, bool) {
 	user, ok := ctx.Value(userContextKey).(*models.User)
 	return user, ok
+}
+
+func GameServerAuth(expectedAPIKey string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			apiKey := r.Header.Get("X-API-Key")
+			if apiKey == "" || subtle.ConstantTimeCompare([]byte(apiKey), []byte(expectedAPIKey)) != 1 {
+				http.Error(w, "Unauthorized: Invalid or missing Game Server API Key", http.StatusUnauthorized)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }
