@@ -66,7 +66,7 @@ func (h *MatchHistoryHandler) PostHistory(w http.ResponseWriter, r *http.Request
 
 	tx, err := h.DB.BeginTx(r.Context(), &sql.TxOptions{})
 	if err != nil {
-		http.Error(w, "Failed to start stats transaction in databse", http.StatusInternalServerError)
+		http.Error(w, "Failed to start stats transaction in database", http.StatusInternalServerError)
 	}
 	defer tx.Rollback()
 	_, err = tx.NewInsert().Model(match).Exec(r.Context())

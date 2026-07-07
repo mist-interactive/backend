@@ -30,6 +30,7 @@ env $(cat ../.env | grep -v '^#' | xargs) \
 DB_PASSWORD=$(cat ../../secrets/postgres_user_pw.txt) \
 JWT_PRIVATE_KEY_PATH=$(realpath ../../secrets/jwt_private.pem) \
 JWT_PUBLIC_KEY_PATH=$(realpath ../../secrets/jwt_public.pem) \
+GAMESERVER_API_KEY_PATH=$(realpath ../../secrets/gameserver_api_key.txt) \
 DB_HOST=localhost \
 go test -v ./handlers
 
