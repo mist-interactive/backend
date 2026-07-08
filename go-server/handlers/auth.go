@@ -31,7 +31,7 @@ type LoginRequest struct {
 // @Failure      403    {string}  string                 "Forbidden - Incorrect password"
 // @Failure      404    {string}  string                 "User not found"
 // @Failure      500    {string}  string                 "Internal Server Error - Session generation failed"
-// @Router       /api/auth/login [post]
+// @Router       /api/login [post]
 func (h *AuthHandler) CheckPassword(w http.ResponseWriter, r *http.Request) {
 	request, err := DecodeAndValidate[LoginRequest](r)
 	if err != nil {

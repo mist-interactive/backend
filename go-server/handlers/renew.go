@@ -28,7 +28,7 @@ type TokenHandler struct {
 // @Security     CookieAuth
 // @Success      200  {object}  map[string]string  "{"token": "ey..."}"
 // @Failure      500  {string}  string             "Internal server error: Token signing failed or session missing"
-// @Router       /api/auth/token [post]
+// @Router       /api/renew [post]
 func (h *TokenHandler) IssueToken(w http.ResponseWriter, r *http.Request) {
 	user, ok := UserFromContext(r.Context())
 	if !ok {

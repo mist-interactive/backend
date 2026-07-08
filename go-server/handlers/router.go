@@ -8,11 +8,17 @@ import (
 	"net/http"
 	"os"
 
+	_ "dbBackend/docs"
+
 	"github.com/golang-jwt/jwt/v5"
+	httpSwagger "github.com/swaggo/http-swagger"
 	"github.com/uptrace/bun"
 )
 
 func RegisterRoutes(mux *http.ServeMux, db *bun.DB) {
+	fmt.Println("Starting swagger endpoint...")
+	mux.Handle("/swagger/", httpSwagger.WrapHandler)
+
 	authHandler := &AuthHandler{DB: db}
 	mux.HandleFunc("POST /api/login", authHandler.CheckPassword)
 

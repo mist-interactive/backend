@@ -29,7 +29,7 @@ type RegisterRequest struct {
 // @Failure      400       {string}  string  "Invalid input layout or validation constraints failed (username_safety/password_complexity)"
 // @Failure      409       {string}  string  "Conflict - Username or Email already registered"
 // @Failure      500       {string}  string  "Internal Server Error - Database writing failure"
-// @Router       /api/auth/register [post]
+// @Router       /api/register [post]
 func (h *RegisterHandler) TryRegister(w http.ResponseWriter, r *http.Request) {
 	request, err := DecodeAndValidate[RegisterRequest](r)
 	if err != nil {

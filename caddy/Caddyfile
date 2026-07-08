@@ -4,6 +4,10 @@ localhost:8443 {
 		# reverse_proxy host.docker.internal:8080 # if running locally
 	}
 
+	handle /swagger/* {
+    reverse_proxy go-server:8080 #
+	}
+
 	handle {
 		root * /srv
 		file_server
