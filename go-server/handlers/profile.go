@@ -27,6 +27,15 @@ type UpdateProfileInput struct {
 	Email    *string `json:"email,omitempty"`
 }
 
+// GetProfile godoc
+// @Summary      Get Player Profile
+// @Description  Fetch profile parameters, statistics (wins/losses), and metadata for the current authenticated user session.
+// @Tags         profile
+// @Produce      json
+// @Security     CookieAuth
+// @Success      200  {object}  handlers.ProfileResponse
+// @Failure      500  {string}  string  "Internal Server Error - Context missing user state"
+// @Router       /api/profile [get]
 func (h *ProfileHandler) GetProfile(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(userContextKey).(*models.User)
 	if !ok {
@@ -47,6 +56,18 @@ func (h *ProfileHandler) GetProfile(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
+// UpdateProfile godoc
+// @Summary      Update Player Profile Fields
+// @Description  Perform partial updates (PATCH style validation) on specific authorized profile parameters like username or email.
+// @Tags         profile
+// @Accept       json
+// @Produce      json
+// @Security     CookieAuth
+// @Param        profile  body      handlers.UpdateProfileInput  true  "Updatable Profile Properties"
+// @Success      200      {object}  models.User
+// @Failure      400      {string}  string  "Invalid JSON payload, validation breach, or empty field mismatch"
+// @Failure      500      {string}  string  "Internal Server Error - Database unique constraint or persistence failure"
+// @Router       /api/profile [patch]
 func (h *ProfileHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(userContextKey).(*models.User)
 	if !ok {

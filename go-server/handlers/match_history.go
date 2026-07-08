@@ -23,6 +23,15 @@ type MatchInput struct {
 	StartedAt time.Time `json:"started_at" validate:"required"`
 }
 
+// GetHistory godoc
+// @Summary      Get Player Match History
+// @Description  Retrieve a chronologically sorted list (newest first) of all match history records involving the authenticated player.
+// @Tags         matches
+// @Produce      json
+// @Security     CookieAuth
+// @Success      200  {array}   models.MatchRecord
+// @Failure      500  {string}  string  "Internal Server Error - Context missing or database read failure"
+// @Router       /api/match-history [get]
 func (h *MatchHistoryHandler) GetHistory(w http.ResponseWriter, r *http.Request) {
 	user, ok := r.Context().Value(userContextKey).(*models.User)
 	if !ok {
@@ -47,6 +56,18 @@ func (h *MatchHistoryHandler) GetHistory(w http.ResponseWriter, r *http.Request)
 	json.NewEncoder(w).Encode(matches)
 }
 
+// PostHistory godoc
+// @Summary      Record Game Match History
+// @Description  Submit an official game completion record. Executes an atomic database transaction that logs the match history and increments player profile win/loss counts.
+// @Tags         matches
+// @Accept       json
+// @Produce      json
+// @Param        X-API-Key  header    string               true  "Server API Key Authentication"
+// @Param        match      body      handlers.MatchInput  true  "Match Result Details"
+// @Success      201        {object}  models.MatchRecord
+// @Failure      400        {string}  string               "Invalid JSON payload or validation failure"
+// @Failure      500        {string}  string               "Internal Server Error - Database transaction failure"
+// @Router       /api/internal/match-history [post]
 func (h *MatchHistoryHandler) PostHistory(w http.ResponseWriter, r *http.Request) {
 	input, err := DecodeAndValidate[MatchInput](r)
 	if err != nil {

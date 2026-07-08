@@ -19,6 +19,17 @@ type RegisterRequest struct {
 	Email    string `json:"email" validate:"required,email,max=255"`
 }
 
+// TryRegister godoc
+// @Summary      Register New User Account
+// @Description  Create a new user account profile. Automatically hashes user passwords using bcrypt and stores emails in lowercase.
+// @Tags         auth
+// @Accept       json
+// @Param        register  body  handlers.RegisterRequest  true  "Registration Form Data"
+// @Success      201       "Account created successfully"
+// @Failure      400       {string}  string  "Invalid input layout or validation constraints failed (username_safety/password_complexity)"
+// @Failure      409       {string}  string  "Conflict - Username or Email already registered"
+// @Failure      500       {string}  string  "Internal Server Error - Database writing failure"
+// @Router       /api/auth/register [post]
 func (h *RegisterHandler) TryRegister(w http.ResponseWriter, r *http.Request) {
 	request, err := DecodeAndValidate[RegisterRequest](r)
 	if err != nil {

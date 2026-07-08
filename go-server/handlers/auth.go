@@ -19,8 +19,19 @@ type LoginRequest struct {
 	Password string `json:"password" validate:"required,min=8,max=72"`
 }
 
-// to be able to be registered as a handler in the server, the function prototype has to be exactly (http.ResponseWriter, *http.Request)
-// so any further input parameters have to be in the receiver, which is why it's a struct
+// CheckPassword godoc
+// @Summary      User Login
+// @Description  Authenticate user credentials via username and password. On success, sets a secure HttpOnly session cookie.
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param        login  body      handlers.LoginRequest  true  "Login Credentials"
+// @Success      200    {object}  map[string]string      "{"message": "Login successful"}"
+// @Failure      400    {string}  string                 "Invalid JSON payload or validation failure"
+// @Failure      403    {string}  string                 "Forbidden - Incorrect password"
+// @Failure      404    {string}  string                 "User not found"
+// @Failure      500    {string}  string                 "Internal Server Error - Session generation failed"
+// @Router       /api/auth/login [post]
 func (h *AuthHandler) CheckPassword(w http.ResponseWriter, r *http.Request) {
 	request, err := DecodeAndValidate[LoginRequest](r)
 	if err != nil {

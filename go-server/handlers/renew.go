@@ -20,6 +20,15 @@ type TokenHandler struct {
 	PrivateKey *rsa.PrivateKey
 }
 
+// IssueToken godoc
+// @Summary      Issue Short-Lived JWT Token
+// @Description  Generates a short-lived RS256 cryptographically signed access JWT using the authenticated cookie session data for validation.
+// @Tags         auth
+// @Produce      json
+// @Security     CookieAuth
+// @Success      200  {object}  map[string]string  "{"token": "ey..."}"
+// @Failure      500  {string}  string             "Internal server error: Token signing failed or session missing"
+// @Router       /api/auth/token [post]
 func (h *TokenHandler) IssueToken(w http.ResponseWriter, r *http.Request) {
 	user, ok := UserFromContext(r.Context())
 	if !ok {
@@ -47,7 +56,11 @@ func (h *TokenHandler) IssueToken(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{
+	err = json.NewEncoder(w).Encode(map[string]string{
 		"token": signedToken,
 	})
+	if err != nil {
+		http.Error(w, "Internal server error: Token signing failed", http.StatusInternalServerError)
+		return
+	}
 }
