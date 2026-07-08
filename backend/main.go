@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"dbBackend/db"
+	"dbBackend/handlers"
 	"fmt"
 	"log"
 	"net/http"
@@ -16,11 +17,20 @@ func main() {
 	}
 	defer postgres.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*120)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*20)
 	defer cancel()
 	err = db.RunMigrations(ctx, postgres)
+	if err != nil {
+		log.Fatalf("%v\n", err)
+	}
 	cancel()
-	dummy()
+
+	mux := http.NewServeMux()
+	handlers.RegisterRoutes(mux, postgres)
+	fmt.Println("Server starting on port 8080...")
+	if err := http.ListenAndServe(":8080", mux); err != nil {
+		log.Fatal("error starting server")
+	}
 }
 
 func dummy() {
