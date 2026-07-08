@@ -32,9 +32,16 @@ We've creating a web-accessible multiplayer game.
 
 #### Database Schema
 
-◦ Visual representation or description of the database structure.
-◦ Tables/collections and their relationships.
-◦ Key fields and data types.
+```mermaid
+erDiagram
+    users {
+        serial id PK "SERIAL, NOT NULL"
+        varchar username UK "NOT NULL"
+        varchar email UK "NOT NULL"
+        varchar password_hash
+        timestamp created_at
+    }
+```
 
 #### Features List
 
@@ -61,7 +68,30 @@ choice".
 
 ## Instructions
 
-clone the repo, and run `make` to launch, visit localhost:443 to try it out
+To test out, you must create a `secrets/` folder parallell to the root of the repo, and make a file called `postgres_user_pw.txt` containing the password used to connect to the DB, and fill out `.env.example` into `.env`. You can then launch the backend and database containers with the command
+
+```
+docker compose up
+```
+
+which should result in:
+
+- both containers launching
+- the backend establishing a connection to the DB
+- the backend creating the `users` table in the DB, as specified in `backend/db/migrations/`
+- the backend starting to serve a dummy endpoint at `/api/health`
+
+You can test the dummy endpoint by going to `localhost:8080/api/health` in a browser, or running
+
+```
+curl -i http://localhost:8080/api/health
+```
+
+It should return a status 200 OK response with the body
+
+```
+{"status": "ok", "message": "Go backend is alive!"}
+```
 
 ---
 

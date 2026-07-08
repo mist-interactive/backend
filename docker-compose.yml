@@ -1,0 +1,47 @@
+name: ft_transcendence
+services:
+  database:
+    image: postgres:16-alpine
+    restart: always
+    env_file:
+      - .env
+    secrets:
+      - postgres_user_pw
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    networks:
+      - db_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  backend:
+    build: ./backend
+    secrets:
+      - postgres_user_pw
+    env_file:
+      - .env
+    environment:
+      - PORT=${BACKEND_PORT}
+    networks:
+      - db_network
+    ports:
+      - "8080:8080"
+    depends_on:
+      database:
+        condition: service_healthy
+
+secrets:
+  postgres_user_pw:
+    file: ../secrets/postgres_user_pw.txt
+
+networks:
+  db_network:
+    name: db_network
+    driver: bridge
+
+volumes:
+  db_data:
