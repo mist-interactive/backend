@@ -66,7 +66,13 @@ erDiagram
 
 ## Instructions
 
-To test out, you must create a `secrets/` folder parallell to the root of the repo, and make a file called `postgres_user_pw.txt` containing the password used to connect to the DB, and fill out `.env.example` into `.env`. You can then launch the backend and database containers with the command
+To test out, you must create a `secrets/` folder parallell to the root of the repo, and make a file called `postgres_user_pw.txt` containing the password used to connect to the DB, and run the commands to create private and public key files in that folder:
+```
+openssl genpkey -algorithm RSA -out jwt_private.pem -pkeyopt rsa_keygen_bits:2048
+openssl rsa -pubout -in jwt_private.pem -out jwt_public.pem
+```
+
+fill out `.env.example` into `.env`. You can then launch the backend and database containers with the command
 
 ```
 docker compose up -d --build
