@@ -71,17 +71,20 @@ choice".
 To test out, you must create a `secrets/` folder parallell to the root of the repo, and make a file called `postgres_user_pw.txt` containing the password used to connect to the DB, and fill out `.env.example` into `.env`. You can then launch the backend and database containers with the command
 
 ```
-docker compose up
+docker compose up --build
 ```
 
 which should result in:
 
-- both containers launching
+- containers `database`, `caddy` and `backend` launching
 - the backend establishing a connection to the DB
 - the backend creating the `users` table in the DB, as specified in `backend/db/migrations/`
 - the backend registering handlers for endpoints
   - `/api/register`
   - `/api/login`
+- the reverse proxy `caddy` exposing ports 8000 (HTTP) and 8443 (HTTPS), while backend and databse no longer expose any ports to the host network
+
+Functionality can be tested by accessing `https://localhost:8443/index.html`, which is a simple, static frontend that has register and login forms with live access to the database, so you can check the response a request generates.
 
 ### Endpoints
 
