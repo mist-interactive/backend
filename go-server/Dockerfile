@@ -1,4 +1,5 @@
-FROM golang:1.25-alpine
+#Stage 1: Build executable
+FROM golang:1.25-bookworm as go-builder
 
 WORKDIR /app
 
@@ -7,7 +8,14 @@ RUN go mod download
 
 COPY . .
 
-RUN go build -o backend main.go
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o backend main.go
+
+#Stage 2: execute
+FROM debian:bookworm-slim
+
+WORKDIR /app
+
+COPY --from=go-builder /app/backend .
 
 EXPOSE 8080
 
