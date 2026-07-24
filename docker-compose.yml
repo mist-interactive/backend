@@ -2,6 +2,7 @@ name: ft_transcendence
 services:
   database:
     image: postgres:16-alpine
+    container_name: database
     restart: always
     env_file:
       - .env
@@ -18,8 +19,9 @@ services:
       retries: 5
       start_period: 5s
 
-  go-server:
-    build: ./go-server
+  backend:
+    build: ./backend
+    container_name: db-backend
     secrets:
       - postgres_user_pw
       - jwt_private_key
