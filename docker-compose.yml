@@ -35,6 +35,19 @@ services:
       database:
         condition: service_healthy
 
+  go-pprof-proxy:
+    image: alpine/socat
+    container_name: go-pprof-proxy
+    profiles:
+      - testing
+    ports:
+      - "8080:8080"
+    command: tcp-listen:8080,fork,reuseaddr tcp:go-server:8080
+    depends_on:
+      - go-server
+    networks:
+      - backend_network
+
   caddy-test:
     image: caddy:2-alpine
     restart: unless-stopped
