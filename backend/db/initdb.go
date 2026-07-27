@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"dbBackend/models"
 	"embed"
 	"fmt"
 	"io/fs"
@@ -16,6 +17,7 @@ import (
 	"github.com/uptrace/bun/dialect/pgdialect"
 	"github.com/uptrace/bun/driver/pgdriver"
 	"github.com/uptrace/bun/migrate"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // set up migrations
@@ -105,5 +107,25 @@ func RunMigrations(ctx context.Context, db *bun.DB) error {
 	for _, m := range group.Migrations {
 		log.Printf("  └─ ✓ Applied: % s\n", m.Name)
 	}
+	seedDevUsers(ctx, db)
 	return nil
+}
+
+func seedDevUsers(ctx context.Context, db *bun.DB) error {
+	count, err := db.NewSelect().Model((*models.User)(nil)).Count(ctx)
+	if err != nil || count > 0 {
+		return err
+	}
+
+	pw := "testing123"
+	hashedPassword, _ := bcrypt.GenerateFromPassword([]byte(pw), bcrypt.DefaultCost)
+
+	devUsers := []models.User{
+		{Username: "nraatika", PWHash: string(hashedPassword), Email: "nraatika@student.hive.fi"},
+		{Username: "mhirvasm", PWHash: string(hashedPassword), Email: "mhirvasm@student.hive.fi"},
+	}
+
+	_, err = db.NewInsert().Model(&devUsers).Exec(ctx)
+	log.Printf("Database seeded with default development users 'nraatika' and 'mhirvasm' (password: %s)\n", pw)
+	return err
 }
