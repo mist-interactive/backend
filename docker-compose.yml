@@ -33,9 +33,11 @@ services:
       database:
         condition: service_healthy
 
-  caddy:
+  caddy-test:
     image: caddy:2-alpine
     restart: unless-stopped
+    profiles:
+      - testing
     ports:
       - "8000:80"
       - "8443:8443"
