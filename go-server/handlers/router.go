@@ -25,6 +25,10 @@ func RegisterRoutes(mux *http.ServeMux, db *bun.DB) {
 	authGuard := AuthRequired(db)
 	tokenHandler := &TokenHandler{PrivateKey: rsaKey}
 	mux.Handle("POST /api/renew", authGuard(http.HandlerFunc(tokenHandler.IssueToken)))
+
+	//TODO: Add API guard middleware
+	matchHandler := &MatchHandler{DB: db}
+	mux.HandleFunc("POST /internal/matches", matchHandler.MatchCreate)
 }
 
 func GetPrivateKey() (*rsa.PrivateKey, error) {
