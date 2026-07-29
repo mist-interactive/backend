@@ -8,11 +8,13 @@ import (
 	"log"
 	"net/http"
 	_ "net/http/pprof" //debug purposes
+	"os"
 	"time"
 )
 
 func main() {
 	postgres, err := db.InitDB()
+
 	if err != nil {
 		log.Fatal("error connecting to db")
 	}
@@ -25,6 +27,11 @@ func main() {
 		log.Fatalf("%v\n", err)
 	}
 	cancel()
+
+	devMode := os.Getenv("ENV")
+	if devMode != "production" {
+		db.SeedDevUsers(ctx, postgres)
+	}
 
 	mux := http.NewServeMux()
 	mux.Handle("/debug/pprof/", http.DefaultServeMux)
