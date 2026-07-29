@@ -1,11 +1,9 @@
 localhost:8443 {
 	handle /api/* {
 		reverse_proxy go-server:8080 # if running containerized
-		# reverse_proxy host.docker.internal:8080 # if running locally
 	}
 
-	handle {
-		root * /srv
-		file_server
-	}
+  handle /internal/* {
+		reverse_proxy go-server:8080 # if running containerized
+  }
 }
