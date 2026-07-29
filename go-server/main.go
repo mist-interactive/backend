@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	_ "net/http/pprof" //debug purposes
 	"time"
 )
 
@@ -18,14 +19,15 @@ func main() {
 	defer postgres.Close()
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*20)
-	defer cancel()
 	err = db.RunMigrations(ctx, postgres)
 	if err != nil {
+		cancel()
 		log.Fatalf("%v\n", err)
 	}
 	cancel()
 
 	mux := http.NewServeMux()
+	mux.Handle("/debug/pprof/", http.DefaultServeMux)
 	handlers.RegisterRoutes(mux, postgres)
 	fmt.Println("Server starting on port 8080...")
 	if err := http.ListenAndServe(":8080", mux); err != nil {

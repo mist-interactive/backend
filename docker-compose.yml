@@ -18,10 +18,12 @@ services:
       retries: 5
       start_period: 5s
 
-  backend:
-    build: ./backend
+  go-server:
+    build: ./go-server
     secrets:
       - postgres_user_pw
+      - jwt_private_key
+      - jwt_public_key
     env_file:
       - .env
     environment:
@@ -32,6 +34,19 @@ services:
     depends_on:
       database:
         condition: service_healthy
+
+  go-pprof-proxy:
+    image: alpine/socat
+    container_name: go-pprof-proxy
+    profiles:
+      - testing
+    ports:
+      - "8080:8080"
+    command: tcp-listen:8080,fork,reuseaddr tcp:go-server:8080
+    depends_on:
+      - go-server
+    networks:
+      - backend_network
 
   caddy-test:
     image: caddy:2-alpine
@@ -52,6 +67,10 @@ services:
 secrets:
   postgres_user_pw:
     file: ../secrets/postgres_user_pw.txt
+  jwt_private_key:
+    file: ../secrets/jwt_private.pem
+  jwt_public_key:
+    file: ../secrets/jwt_public.pem
 
 networks:
   db_network:

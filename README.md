@@ -1,84 +1,89 @@
 _This project has been created as part of the 42 curriculum by jpelline, anpollan, mhrvasm, zfarah and nraatika._
 
-# Transcendence
+# Backend & Database
 
 ## Description
 
-We've creating a web-accessible multiplayer game.
+This repo hosts the **Go** Backend server, the **Postgres** Database server, and related infrastructure code
 
 ### Team Information
 
-#### Assigned roles
+Lead developer for backend: Niklas Raatikainen
+Contributions:
 
-- **Product Owner**:
-- **Project Manager**:
-- **Technical Lead**:
-- **Developers**:
-- Brief description of their responsibilities.
+### Technical Stack
 
-#### Project Management
+#### Docker
 
-◦ How the team organized the work (task distribution, meetings, etc.).
-◦ Tools used for project management (GitHub Issues, Trello, etc.).
-◦ Communication channels used (Discord, Slack, etc.).
+Docker is used to run separate services in isolated containers and networks, controlled by a Docker Compose file.
 
-#### Technical Stack
+- at the front gate there is a **Caddy** container acting as a reverse proxy, listening for incoming HTTPS traffic on port 8443 (it also accepts incoming HTTP traffic on port 8000 only for upgrade-to-HTTPS purposes). For testing purposes, it routes some traffic to a static index.html file it's serving, but traffic to `/api/*` gets routed to the **Backend server**, which in turn connects to the **Database Server**.
 
-◦ Frontend technologies and frameworks used.
-◦ Backend technologies and frameworks used.
-◦ Database system and why it was chosen.
-◦ Any other significant technologies or libraries.
-◦ Justification for major technical choices.
+#### Backend server
+
+- The backend server is written in **Golang**, with the standard library `http.ServeMux` package doing the basic work of serving API endpoints
+- We use some third-party packages in addition to the Go standard:
+  - To facilitate the connection to the **Database Server** we use the **Bun ORM** package [\[Docs\]](https://bun.uptrace.dev/) / [\[GitHub\]](https://github.com/uptrace/bun)
+  - For password hashing we use the **Crypto** package [\[GitHub\]](https://github.com/x/crypto)
+  - For input validation before passing things to the database we use the **Validator** package [\[GitHub\]](https://go-playground/validator/v10)
+  - To handle graceful use of `.env`-files we use the **godotenv** package [\[GitHub\]](https://go-playground/validator/v10)
+  - To help with automated testing we use the **testify** package [\[GitHub\]](https://github.com/stretchr/testify)
+
+##### Internal packages
+
+To help keep the server maintainable, code is internally divided into a few packages:
+
+- `main` sets up and starts the server
+- `db` handles setting up the database connection, and running any needed migrations (setting up tables in the database, etc)
+- `models` defines the translation of structs in Go to database tables in Postgres (you pass a struct defined in `models` as an argument to the Bun DB connection, and Bun uses that model to correctly translate that to SQL queries that get sent to the database)
+- `handlers` package define handlers for each endpoint we're serving
+- `internal/testutil` package contains helpers to testing functions
+- `handlers_test` package contains tests to validate that the handlers are working correctly, including some integration tests with the DB
+- `models_test` package contains tests to validate the models integrate correctly with the DB tables
 
 #### Database Schema
 
 ```mermaid
 erDiagram
     users {
-        serial id PK "SERIAL, NOT NULL"
+        bigserial id PK "SERIAL, NOT NULL"
         varchar username UK "NOT NULL"
         varchar email UK "NOT NULL"
         varchar password_hash
         timestamp created_at
     }
+    sessions {
+      bigserial id PK "SERIAL, NOT_NULL"
+      bigint user_id FK
+      varchar session_token UK "NOT NULL"
+      timestamp created_at
+      timestamp expires_at
+    }
+    users ||--o{ sessions : "has"
 ```
-
-#### Features List
-
-◦ Complete list of implemented features.
-◦ Which team member(s) worked on each feature.
-◦ Brief description of each feature’s functionality
-
-#### Modules
-
-◦ List of all chosen modules (Major and Minor).
-◦ Point calculation (Major = 2pts, Minor = 1pt).
-◦ Justification for each module choice, especially for custom "Modules of
-choice".
-◦ How each module was implemented.
-◦ Which team member(s) worked on each module
-
-#### Individual Contributions
-
-◦ Detailed breakdown of what each team member contributed.
-◦ Specific features, modules, or components implemented by each person.
-◦ Any challenges faced and how they were overcome.
 
 ---
 
 ## Instructions
 
-To test out, you must create a `secrets/` folder parallell to the root of the repo, and make a file called `postgres_user_pw.txt` containing the password used to connect to the DB, and fill out `.env.example` into `.env`. You can then launch the backend and database containers with the command
+To test out, you must create a `secrets/` folder parallell to the root of the repo, and make a file called `postgres_user_pw.txt` containing the password used to connect to the DB, and run the commands to create private and public key files in that folder:
 
 ```
-docker compose up --build
+openssl genpkey -algorithm RSA -out jwt_private.pem -pkeyopt rsa_keygen_bits:2048
+openssl rsa -pubout -in jwt_private.pem -out jwt_public.pem
+```
+
+fill out `.env.example` into `.env`. You can then launch the backend and database containers with the command
+
+```
+docker compose up -d --build
 ```
 
 which should result in:
 
 - containers `database`, `caddy` and `backend` launching
 - the backend establishing a connection to the DB
-- the backend creating the `users` table in the DB, as specified in `backend/db/migrations/`
+- the backend creating the `users` and `sessions` tables in the DB, as specified in `backend/db/migrations/`
 - the backend registering handlers for endpoints
   - `/api/register`
   - `/api/login`

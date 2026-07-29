@@ -127,5 +127,36 @@
           }
         });
     </script>
+
+    <button id="renewBtn">Get JWT</button>
+    <pre id="tokenOutput">Token will appear here...</pre>
+    <script>
+      //Test /api/renew
+      document
+        .getElementById("renewBtn")
+        .addEventListener("click", async () => {
+          try {
+            const response = await fetch("/api/renew", {
+              method: "POST",
+            });
+            if (!response.ok) {
+              const errorText = await response.text();
+              document.getElementById("tokenOutput").innerText =
+                `Error (${response.status}): ${errorText}`;
+              return;
+            }
+            const data = await response.json();
+            document.getElementById("tokenOutput").innerText = JSON.stringify(
+              data,
+              null,
+              2,
+            );
+            console.log("Your JWT:", data.ticket);
+          } catch (err) {
+            document.getElementById("tokenOutput").innerText =
+              `Network Error: ${err.message}`;
+          }
+        });
+    </script>
   </body>
 </html>

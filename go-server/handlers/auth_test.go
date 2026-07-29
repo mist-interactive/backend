@@ -2,18 +2,22 @@ package handlers_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"dbBackend/handlers"
+	"dbBackend/internal/testutil"
+	"dbBackend/models"
 )
 
 func TestLogin(t *testing.T) {
-	testUser := makeTestUser(t)
-	setCleanup(t, testUser)
-	registerUser(t, testUser)
+	t.Helper()
+	testUser, cleanup := testutil.MakeTestUser(t, testDB)
+	t.Cleanup(cleanup)
+	testutil.RegisterUser(t, testUser, testDB)
 	handler := &handlers.AuthHandler{DB: testDB}
 
 	tests := []struct {
@@ -21,6 +25,7 @@ func TestLogin(t *testing.T) {
 		requestBody    handlers.LoginRequest
 		expectedStatus int
 		expectJSON     bool
+		validate       func(t *testing.T, rec *httptest.ResponseRecorder)
 	}{
 		{
 			name: "Success - Correct credentials",
@@ -30,6 +35,7 @@ func TestLogin(t *testing.T) {
 			},
 			expectedStatus: http.StatusOK,
 			expectJSON:     true,
+			validate:       validateSuccessfulLogin(testUser.ID),
 		},
 		{
 			name: "Failure - Correct user but incorrect password",
@@ -39,6 +45,7 @@ func TestLogin(t *testing.T) {
 			},
 			expectedStatus: http.StatusForbidden,
 			expectJSON:     false,
+			validate:       nil,
 		},
 		{
 			name: "Failure - Nonexistent user",
@@ -48,6 +55,7 @@ func TestLogin(t *testing.T) {
 			},
 			expectedStatus: http.StatusNotFound,
 			expectJSON:     false,
+			validate:       nil,
 		},
 	}
 
@@ -72,5 +80,52 @@ func TestLogin(t *testing.T) {
 			}
 		})
 
+	}
+}
+
+func validateSuccessfulLogin(expectedUserID int64) func(t *testing.T, rec *httptest.ResponseRecorder) {
+	return func(t *testing.T, rec *httptest.ResponseRecorder) {
+		t.Helper()
+		ctx := context.Background()
+
+		cookies := rec.Result().Cookies()
+		var sessionCookie *http.Cookie
+		for _, c := range cookies {
+			if c.Name == "session_id" {
+				sessionCookie = c
+				break
+			}
+		}
+
+		if sessionCookie == nil {
+			t.Error("expected 'session_id' cookie to be present in response headers")
+			return
+		}
+		if sessionCookie.Value == "" {
+			t.Error("expected session cookie token value to be populated")
+		}
+		if !sessionCookie.HttpOnly {
+			t.Error("security breach: expected session cookie to be HttpOnly")
+		}
+		if !sessionCookie.Secure {
+			t.Error("security breach: expected session cookie to have Secure flag")
+		}
+		if sessionCookie.SameSite != http.SameSiteStrictMode {
+			t.Errorf("expected SameSite Strict, got %v", sessionCookie.SameSite)
+		}
+
+		dbSession := new(models.Session)
+		err := testDB.NewSelect().
+			Model(dbSession).
+			Where("session_token = ?", sessionCookie.Value).
+			Scan(ctx)
+
+		if err != nil {
+			t.Errorf("failed to locate registered session in database: %v", err)
+			return
+		}
+		if dbSession.UserID != expectedUserID {
+			t.Errorf("session database row mismatched: expected user ID %d, got %d", expectedUserID, dbSession.UserID)
+		}
 	}
 }

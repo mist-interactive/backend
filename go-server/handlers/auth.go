@@ -1,9 +1,10 @@
 package handlers
 
 import (
+	"crypto/rand"
 	"dbBackend/models"
-	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/uptrace/bun"
 	"golang.org/x/crypto/bcrypt"
@@ -36,18 +37,37 @@ func (h *AuthHandler) CheckPassword(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "User not found", http.StatusNotFound)
 		return
 	}
-	//	log.Printf("DEBUG RUNTIME CHECK:\n -> Incoming Password: [%s] (Length: %d)\n -> Stored DB Hash:    [%s] (Length: %d)\n",
-	//		request.Password, len(request.Password), user.PWHash, len(user.PWHash))
 	err = bcrypt.CompareHashAndPassword([]byte(user.PWHash), []byte(request.Password))
 	if err != nil {
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
 
-	if err := json.NewEncoder(w).Encode(user); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	sessionToken := rand.Text()
+	sessionDuration := 24 * time.Hour
+	newSession := &models.Session{
+		UserID:       user.ID,
+		SessionToken: sessionToken,
+		ExpiresAt:    time.Now().Add(sessionDuration),
+	}
+
+	_, err = h.DB.NewInsert().
+		Model(newSession).
+		Exec(r.Context())
+	if err != nil {
+		http.Error(w, "Failed to create session", http.StatusInternalServerError)
 		return
 	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     "session_id",
+		Value:    newSession.SessionToken,
+		Path:     "/",
+		Expires:  newSession.ExpiresAt,
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteStrictMode,
+	})
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{"message": "Login successful"}`))
 }
