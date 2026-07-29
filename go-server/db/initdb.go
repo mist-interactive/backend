@@ -63,7 +63,7 @@ func getDBPassword() string {
 	return ""
 }
 
-func seedDevUsers(ctx context.Context, db *bun.DB) error {
+func SeedDevUsers(ctx context.Context, db *bun.DB) error {
 	count, err := db.NewSelect().Model((*models.User)(nil)).Count(ctx)
 	if err != nil || count > 0 {
 		return err
