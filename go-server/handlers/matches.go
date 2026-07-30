@@ -4,8 +4,6 @@ import (
 	"dbBackend/models"
 	"encoding/json"
 	"net/http"
-	"strconv"
-	"time"
 
 	"github.com/uptrace/bun"
 )
@@ -20,11 +18,13 @@ type MatchCreateInput struct {
 }
 
 type MatchPatchInput struct {
-	Result string `json:"result" validate:"required,oneof=player1_win player2_win draw aborted"`
-	Status string `json:"status" validate:"required,oneof=finished abandoned"`
+	Player1 int64  `json:"player_one" validate:"required"`
+	Player2 int64  `json:"player_two" validate:"required"`
+	Result  string `json:"result" validate:"required,oneof=player1_win player2_win draw aborted"`
+	Status  string `json:"status" validate:"required,oneof=finished abandoned"`
 }
 
-func (h *MatchHandler) MatchesCreate(w http.ResponseWriter, r *http.Request) {
+func (h *MatchHandler) MatchCreate(w http.ResponseWriter, r *http.Request) {
 	input, err := DecodeAndValidate[MatchCreateInput](r)
 	if input.Player1 == input.Player2 {
 		http.Error(w, "Players cannot play themselves", http.StatusConflict)
@@ -41,7 +41,7 @@ func (h *MatchHandler) MatchesCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	err = h.DB.NewInsert().
 		Model(match).
-		Scan(r.Context()) //Scan updates the match struct populating all fields, including the ID
+		Scan(r.Context())
 	if err != nil {
 		http.Error(w, "Failed to create match entry in database: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -52,34 +52,4 @@ func (h *MatchHandler) MatchesCreate(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]any{
 		"id": match.ID,
 	})
-}
-
-func (h *MatchHandler) MatchesPatch(w http.ResponseWriter, r *http.Request) {
-	idStr := r.PathValue("id")
-	matchID, err := strconv.ParseInt(idStr, 10, 64)
-	if err != nil {
-		http.Error(w, "Invalid match ID", http.StatusBadRequest)
-		return
-	}
-	input, err := DecodeAndValidate[MatchPatchInput](r)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	now := time.Now()
-	_, err = h.DB.NewUpdate().
-		Model((*models.MatchRecord)(nil)).
-		Set("status = ?", input.Status).
-		Set("result = ?", input.Result).
-		Set("finished_at = ?", now).
-		Where("id = ?", matchID).
-		Where("status = ?", models.StatusInProgress).
-		Exec(r.Context())
-
-	if err != nil {
-		http.Error(w, "Database error: Failed to update match history", http.StatusInternalServerError)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
 }
