@@ -19,7 +19,11 @@ services:
       start_period: 5s
 
   go-server:
-    build: ./go-server
+    build:
+      context: ./go-server
+      target: dev
+    volumes:
+      - ./go-server:/app
     secrets:
       - postgres_user_pw
       - jwt_private_key
