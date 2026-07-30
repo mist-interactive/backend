@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS matches (
     CONSTRAINT fk_matches_player_one FOREIGN KEY (player_one) REFERENCES users(id),
     CONSTRAINT fk_matches_player_two FOREIGN KEY (player_two) REFERENCES users(id),
     CONSTRAINT check_match_result CHECK(result IN ('player1_win', 'player2_win', 'draw', 'aborted')),
-    CONSTRAINT check_match_status CHECK(status IN ('in_progress', 'finished', 'abandoned'))
+    CONSTRAINT check_match_status CHECK(status IN ('in_progress', 'finished', 'abandoned')),
     CONSTRAINT check_different_players CHECK (player_one <> player_two)
 );
 
