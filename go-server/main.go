@@ -26,12 +26,12 @@ func main() {
 		cancel()
 		log.Fatalf("%v\n", err)
 	}
-	cancel()
 
 	devMode := os.Getenv("ENV")
 	if devMode != "production" {
-		db.SeedDevUsers(ctx, postgres)
+		err = db.SeedDevUsers(ctx, postgres)
 	}
+	cancel()
 
 	mux := http.NewServeMux()
 	mux.Handle("/debug/pprof/", http.DefaultServeMux)
