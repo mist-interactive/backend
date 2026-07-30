@@ -66,7 +66,7 @@ func getDBPassword() string {
 func SeedDevUsers(ctx context.Context, db *bun.DB) error {
 	count, err := db.NewSelect().Model((*models.User)(nil)).Count(ctx)
 	if err != nil || count > 0 {
-		return err
+		return fmt.Errorf("Database not empty or other error (%v)", err)
 	}
 
 	pw := "testing123"
