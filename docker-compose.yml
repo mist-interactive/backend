@@ -18,6 +18,7 @@ services:
       retries: 5
       start_period: 5s
 
+  # default for now: running with hot-reloading
   go-server:
     build:
       context: ./go-server
@@ -45,6 +46,30 @@ services:
       timeout: 3s
       retries: 5
       start_period: 3s
+
+  # for testing, run only a compiled version for maximum performance
+  go-server-prod:
+    build:
+      context: ./go-server
+      target: production
+    profiles:
+      - production
+    secrets:
+      - postgres_user_pw
+      - jwt_private_key
+      - jwt_public_key
+    env_file:
+      - .env
+    environment:
+      - PORT=${BACKEND_PORT}
+    networks:
+      db_network:
+      backend_network:
+        aliases:
+          - go-server
+    depends_on:
+      database:
+        condition: service_healthy
 
   go-pprof-proxy:
     image: alpine/socat

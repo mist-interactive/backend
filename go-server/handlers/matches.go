@@ -3,6 +3,7 @@ package handlers
 import (
 	"dbBackend/models"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -63,17 +64,27 @@ func (h *Handler) MatchPatch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	now := time.Now()
-	_, err = h.DB.NewUpdate().
+	res, err := h.DB.NewUpdate().
 		Model((*models.MatchRecord)(nil)).
+		Where("id = ?", matchID).
+		Where("status = ?", models.StatusInProgress).
 		Set("status = ?", input.Status).
 		Set("result = ?", input.Result).
 		Set("finished_at = ?", now).
-		Where("id = ?", matchID).
-		Where("status = ?", models.StatusInProgress).
 		Exec(r.Context())
 
 	if err != nil {
 		http.Error(w, "Database error: Failed to update match history", http.StatusInternalServerError)
+		return
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		http.Error(w, "Database error: Failed to update match history", http.StatusInternalServerError)
+		return
+	}
+	if rows == 0 {
+		msg := fmt.Sprintf("No match in progress with ID %d was found", matchID)
+		http.Error(w, msg, http.StatusConflict)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
