@@ -29,7 +29,10 @@ func main() {
 
 	devMode := os.Getenv("ENV")
 	if devMode != "production" {
-		db.SeedDevUsers(ctx, postgres)
+		err = db.SeedDevUsers(ctx, postgres)
+		if err != nil {
+			log.Printf("Seeding dev users failed: %v", err)
+		}
 	}
 	cancel()
 
