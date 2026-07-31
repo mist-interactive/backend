@@ -1,14 +1,13 @@
 #Stage 1: Build executable
-FROM golang:1.25-bookworm as base
+FROM golang:1.25-bookworm as go-base
 
 WORKDIR /app
-
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod \
   go mod download
 
 #Stage 2a: hot reloading server for development
-FROM base AS dev
+FROM go-base AS dev
 
   RUN go install github.com/air-verse/air@v1.61.7
 
@@ -19,7 +18,7 @@ FROM base AS dev
   CMD ["air"]
 
 #stage 2b: build executable
-FROM base as builder
+FROM go-base as go-builder
 
 COPY . .
 
@@ -32,8 +31,6 @@ FROM debian:bookworm-slim as production
 
 WORKDIR /app
 
-COPY --from=builder /app/backend .
-
+COPY --from=go-builder /app/backend .
 EXPOSE 8080
-
 CMD ["./backend"]
