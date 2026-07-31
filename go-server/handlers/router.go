@@ -28,7 +28,8 @@ func RegisterRoutes(mux *http.ServeMux, db *bun.DB) {
 
 	//TODO: Add API guard middleware
 	matchHandler := &MatchHandler{DB: db}
-	mux.HandleFunc("POST /internal/matches", matchHandler.MatchCreate)
+	mux.HandleFunc("POST /internal/matches", matchHandler.MatchesCreate)
+	mux.HandleFunc("PATCH /internal/matches/{id}", matchHandler.MatchesPatch)
 }
 
 func GetPrivateKey() (*rsa.PrivateKey, error) {
