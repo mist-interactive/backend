@@ -19,14 +19,15 @@ type MatchCreateInput struct {
 
 func (h *MatchHandler) MatchCreate(w http.ResponseWriter, r *http.Request) {
 	input, err := DecodeAndValidate[MatchCreateInput](r)
-	if input.Player1 == input.Player2 {
-		http.Error(w, "Players cannot play themselves", http.StatusConflict)
-		return
-	}
 	if err != nil {
 		http.Error(w, "Problem validating request", http.StatusBadRequest)
 		return
 	}
+	if input.Player1 == input.Player2 {
+		http.Error(w, "Players cannot play themselves", http.StatusConflict)
+		return
+	}
+
 	match := &models.MatchRecord{
 		Player1: input.Player1,
 		Player2: input.Player2,
