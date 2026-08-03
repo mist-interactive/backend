@@ -11,7 +11,8 @@ import (
 )
 
 type MatchHandler struct {
-	DB *bun.DB
+	DB     *bun.DB
+	APIKey string
 }
 
 type MatchCreateInput struct {

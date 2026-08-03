@@ -23,7 +23,7 @@ const (
 type MatchRecord struct {
 	bun.BaseModel `bun:"table:matches"`
 
-	ID         int64        `json:"id" bun:"id,pk,autoincrement"`
+	ID         int64        `json:"match_id" bun:"id,pk,autoincrement"`
 	Player1    int64        `json:"player_one" bun:"player_one,notnull"`
 	Player2    int64        `json:"player_two" bun:"player_two,notnull"`
 	Status     MatchStatus  `json:"status" bun:"status,notnull"`
