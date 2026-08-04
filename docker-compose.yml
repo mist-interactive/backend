@@ -3,7 +3,7 @@ services:
     image: postgres:16-alpine
     restart: always
     env_file:
-      - .env
+      - backend/.env
     secrets:
       - postgres_user_pw
     volumes:
@@ -24,7 +24,7 @@ services:
       - jwt_private_key
       - jwt_public_key
     env_file:
-      - .env
+      - backend/.env
     environment:
       - PORT=${BACKEND_PORT}
     networks:
@@ -65,11 +65,11 @@ services:
 
 secrets:
   postgres_user_pw:
-    file: ../secrets/postgres_user_pw.txt
+    file: secrets/postgres_user_pw.txt
   jwt_private_key:
-    file: ../secrets/jwt_private.pem
+    file: secrets/jwt_private.pem
   jwt_public_key:
-    file: ../secrets/jwt_public.pem
+    file: secrets/jwt_public.pem
 
 networks:
   db_network:
