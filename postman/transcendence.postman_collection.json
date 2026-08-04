@@ -1,0 +1,194 @@
+{
+  "info": {
+    "_postman_id": "f2201975-8189-4b86-bb4f-d762dc9a7232",
+    "name": "transcendence",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "56387902"
+  },
+  "item": [
+    {
+      "name": "register",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n\"username\": \"nraatika\",\n\"email\": \"nraatika@student.hive.fi\",\n\"password\": \"testing123\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{base_url}}/api/register",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "register"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "login",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"username\": \"nraatika\",\n    \"password\": \"testing123\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{base_url}}/api/login",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "login"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "renew",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const response = pm.response.json();",
+              "const token = response.token; ",
+              "",
+              "if (token) {",
+              "    const payloadBase64 = token.split('.')[1];",
+              "    const decodedPayload = JSON.parse(Buffer.from(payloadBase64, 'base64').toString('utf-8'));",
+              "    console.log(\"Decoded JWT Payload:\", decodedPayload);",
+              "    if (decodedPayload.exp) {",
+              "        const expDate = new Date(decodedPayload.exp * 1000);",
+              "        console.log(\"Token Expires At:\", expDate.toLocaleString());",
+              "    }    ",
+              "    pm.variables.set(\"authToken\", token);",
+              "} else {",
+              "    console.warn(\"No token found in response body!\");",
+              "}"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{base_url}}/api/renew",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "renew"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "create match",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const response = pm.response.json();",
+              "",
+              "pm.test(\"Match created successfully\", function () {",
+              "    pm.response.to.have.status(201);",
+              "    pm.expect(response.id).to.exist;",
+              "});",
+              "",
+              "pm.collectionVariables.set(\"match_id\", response.id);"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"player_one\": 2,\n    \"player_two\": 1\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{base_url}}/internal/matches",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "internal",
+            "matches"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Patch-with-id",
+      "request": {
+        "method": "PATCH",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"result\": \"player1_win\",\n    \"status\": \"finished\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/internal/matches/{{match_id}}",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "internal",
+            "matches",
+            "{{match_id}}"
+          ]
+        }
+      },
+      "response": []
+    }
+  ],
+  "variable": [
+    {
+      "key": "match_id",
+      "value": ""
+    }
+  ]
+}
