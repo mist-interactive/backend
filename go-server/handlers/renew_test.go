@@ -2,15 +2,12 @@ package handlers_test
 
 import (
 	"context"
-	"crypto/rsa"
 	"dbBackend/handlers"
 	"dbBackend/internal/testutil"
 	"dbBackend/models"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strconv"
 	"testing"
 	"time"
@@ -64,12 +61,12 @@ func TestToken_Integration(t *testing.T) {
 		t.Fatal("response JSON body missing 'ticket' key string")
 	}
 
-	publicKey, err := getPublicKey()
+	publicKey, err := handlers.GetPublicKey()
 	if err != nil {
 		t.Fatalf("Failed to read public key: %v", err)
 	}
 	var parsedClaims handlers.JWTClaims
-	token, err := jwt.ParseWithClaims(tokenJWT, &parsedClaims, func(token *jwt.Token) (interface{}, error) {
+	token, err := jwt.ParseWithClaims(tokenJWT, &parsedClaims, func(token *jwt.Token) (any, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
 			t.Errorf("unexpected signing method detected in header: %v", token.Header["alg"])
 		}
@@ -94,17 +91,4 @@ func TestToken_Integration(t *testing.T) {
 	if val, err := strconv.ParseInt(parsedClaims.Subject, 10, 64); err != nil || val != testUser.ID {
 		t.Errorf("claims security flaw: expected subject id '%d', got '%s'", testUser.ID, parsedClaims.Subject)
 	}
-}
-
-func getPublicKey() (*rsa.PublicKey, error) {
-	pubPath := os.Getenv("JWT_PUBLIC_KEY_PATH")
-	pubBytes, err := os.ReadFile(pubPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open public key verify file: %v", err)
-	}
-	publicKey, err := jwt.ParseRSAPublicKeyFromPEM(pubBytes)
-	if err != nil {
-		return nil, fmt.Errorf("failed to cryptographically compile RSA public key: %v", err)
-	}
-	return publicKey, nil
 }
