@@ -17,17 +17,18 @@ Contributions:
 
 Docker is used to run separate services in isolated containers and networks, controlled by a Docker Compose file.
 
-- at the front gate there is a **Caddy** container acting as a reverse proxy, listening for incoming HTTPS traffic on port 8443 (it also accepts incoming HTTP traffic on port 8000 only for upgrade-to-HTTPS purposes). For testing purposes, it routes some traffic to a static index.html file it's serving, but traffic to `/api/*` gets routed to the **Backend server**, which in turn connects to the **Database Server**.
+- at the front gate there is a **Caddy** container acting as a reverse proxy, listening for incoming HTTPS traffic on port 8443 (it also accepts incoming HTTP traffic on port 8000 only for upgrade-to-HTTPS purposes). Traffic to `/api/*` and `/internal/*` gets routed to the **Backend server**, which in turn connects to the **Database Server**.
 
 #### Backend server
 
 - The backend server is written in **Golang**, with the standard library `http.ServeMux` package doing the basic work of serving API endpoints
 - We use some third-party packages in addition to the Go standard:
   - To facilitate the connection to the **Database Server** we use the **Bun ORM** package [\[Docs\]](https://bun.uptrace.dev/) / [\[GitHub\]](https://github.com/uptrace/bun)
-  - For password hashing we use the **Crypto** package [\[GitHub\]](https://github.com/x/crypto)
-  - For input validation before passing things to the database we use the **Validator** package [\[GitHub\]](https://go-playground/validator/v10)
-  - To handle graceful use of `.env`-files we use the **godotenv** package [\[GitHub\]](https://go-playground/validator/v10)
-  - To help with automated testing we use the **testify** package [\[GitHub\]](https://github.com/stretchr/testify)
+  - For password hashing we use the **`crypto`** package [\[GitHub\]](https://github.com/x/crypto)
+  - For input validation before passing things to the database we use the **`validator`** package [\[GitHub\]](https://go-playground/validator/v10)
+  - To handle graceful use of `.env`-files we use the **`godotenv`** package [\[GitHub\]](https://go-playground/validator/v10)
+  - To help with automated testing we use the **`testify`** package [\[GitHub\]](https://github.com/stretchr/testify)
+  - To handle JWT creation and testing, we use a **`jwt`** package [\[GitHub\]](https://github.com/golang-jwt/jwt/v5)
 
 ##### Internal packages
 
@@ -60,7 +61,20 @@ erDiagram
       timestamp expires_at
     }
     users ||--o{ sessions : "has"
+    matches {
+      bigserial id PK "SERIAL, NOT NULL"
+      bigint player_one FK "FK -> users.id"
+      bigint player_two FK "FK -> users.id"
+      varchar status "CHECK: in_progress, finished, abandoned"
+      varchar result "CHECK: NULL, player1_win, player2_win, draw, aborted"
+      timestamp started_at
+      timestamp finished_at
+    }
+    users ||--o{ matches : "as player_one"
+    users ||--o{ matches : "as player_two"
 ```
+
+##### TODO:
 
 ---
 
@@ -81,19 +95,24 @@ docker compose up -d --build
 
 which should result in:
 
-- containers `database`, `caddy` and `backend` launching
+- containers `database`, `caddy-test` and `go-server` launching
 - the backend establishing a connection to the DB
-- the backend creating the `users` and `sessions` tables in the DB, as specified in `backend/db/migrations/`
+- the backend creating the `users`, `sessions` and `matches` tables in the DB, as specified in `backend/db/migrations/`
 - the backend registering handlers for endpoints
   - `/api/register`
   - `/api/login`
-- the reverse proxy `caddy` exposing ports 8000 (HTTP) and 8443 (HTTPS), while backend and databse no longer expose any ports to the host network
+  - `/api/renew`
+  - `/internal/matches`
+  - `/internal/matches/{id}`
+- the reverse proxy `caddy-test` exposing ports 8000 (HTTP) and 8443 (HTTPS), while backend and databse don't expose any ports to the host network
 
-Functionality can be tested by accessing `https://localhost:8443/index.html`, which is a simple, static frontend that has register and login forms with live access to the database, so you can check the response a request generates.
+Functionality can be tested using Postman.
 
 ### Endpoints
 
-#### `register`
+#### Open endpoints
+
+##### `POST /api/register`
 
 The register endpoint is expecting a request with type `application/json`, as defined in `handlers/register.go`:
 
@@ -110,18 +129,16 @@ This means all fields are required, there are length constraints on all, the key
 If input passes validation, a password hash is generated using the `bcrypt` algorithm, which is what is stored in the database.
 
 We use Bun ORM to try to insert the new user to the database, however both `username` and `email` fields have the unique constraint, so insertion may be expected to fail on duplicate input to an existing account for either field, and that error is returned to the requester as a `Conflict` response.
+The following user-defined checks are done:
 
-##### `username_safety`
+- `username_safety`
+  - This checks that the username contains only alphanumerics, underscores and dashes
+- `password complexity`
+  - This checks that the password contains characters from at least two of the categories `[uppercase, lowercase, digit, special]`.
 
-This checks that the username contains only alphanumerics, underscores and dashes
+##### `POST /api/login`
 
-##### `password complexity`
-
-This checks that the password contains characters from at least two of the categories `[uppercase, lowercase, digit, special]`.
-
-#### `login`
-
-The login endpoint expects a request with type `application/json`, as defined in `handlers/auth.go`:
+The `login` endpoint expects a request with type `application/json`, as defined in `handlers/auth.go`:
 
 ```
 type LoginRequest struct {
@@ -130,7 +147,83 @@ type LoginRequest struct {
 }
 ```
 
-Here we only check the length constraints before trying to fetch user info with the given input, using `bcrypt` to check whether the given password matches the hashed one in the database if the user was founf, and returns a response. Currently the response is a `OK` status with the User struct as the body of the response, we'll update to a token in the near future.
+Here we only check the length constraints before trying to fetch user info with the given input, using `bcrypt` to check whether the given password matches the hashed one in the database if the user was found, and returns a response. If login is succesfull, a new entry is created into the `sessions` table in the DB, containing a unique, random 26-character string, that is returned to the caller as a secure, HttpOnly cookie with the name `session_id`. Cookie is valid 24 hours.
+
+#### Cookie-protected route
+
+This route requires a `session_id`-cookie to be attached to the request, or it's rejected. This is handled by a middleware that checks in the that the given session exists and is valid in the `sessions` table, and fetches the data of the `user` referred to in that entry, and attaches it to the request, so the handler doesn't need to do a separate request.
+
+##### `POST /api/renew`
+
+The `renew` endpoint issues a JWT signed with a private key using `RS256`, with the users' username and id as the payload, as well as the required fieds:
+
+```
+RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    "dbBackend",
+			Subject:   strconv.Itoa(int(user.ID)),
+			IssuedAt:  jwt.NewNumericDate(now),
+			NotBefore: jwt.NewNumericDate(now),
+			ExpiresAt: jwt.NewNumericDate(now.Add(lifetime)),
+		},
+```
+
+We use 60s as the lifetime currently.
+
+#### API key protected routes: `/internal/*`
+
+These routes are intended to be used by the game server when it needs to get or store data in the database. This is accomplished by a middleware, that checks whether the request has a key provided in the header, and that it matches a known key
+
+##### `POST /internal/matches`
+
+Used to create a new match entry in the database. The expected request body, as defined in `matches.go`:
+
+```
+type MatchCreateInput struct {
+	Player1 int64 `json:"player_one" validate:"required"`
+	Player2 int64 `json:"player_two" validate:"required"`
+}
+```
+
+So to create a match record, you just send the player ids. The `status` field is set to "`in_progress`". If successful, the return is a JSON with the content
+
+```
+{
+  "match_id": <id>
+}
+```
+
+This value can be later used to update the result of the match:
+
+##### `PATCH /internal/matches/{id}`
+
+Used to update a match with a result. The expected request body, as defined in `matches.go`:
+
+```
+type MatchPatchInput struct {
+	Result string `json:"result" validate:"required,oneof=player1_win player2_win draw aborted"`
+	Status string `json:"status" validate:"required,oneof=finished abandoned"`
+}
+```
+
+This means that the "`result`" must be one of `player1_win`, `player2_win`, `draw` or `aborted`, and "`status`" must be one of `finished` and `abandoned`
+
+To perform an update, we first filter the `matches` table to only include entries with the `id` specified in the request address, and only ones where status is `in_progress`. This means a match result can only be updated once, while trying to update an id that doesn't exist in the table or that doesn't have status `in_progress`, results in an error `http.StatusConflict` (409) being returned.
+
+#### JWT protected routes: `/protected/*`
+
+These routes are protected by a JWT checking middleware, which will extract the userid from the token after validating the signature and expiration status. That id is passed on to the handlers in the request context.
+
+##### `GET /protected/profile`
+
+This returns the users own profile. Response is JSON, exact details TBD.
+
+##### `PATCH /protected/profile`
+
+This updates the users information with the selected updates. response is status code only.
+
+##### `DELETE /protected/profile`
+
+This deletes the users profile. response is status code only
 
 ### Testing
 
