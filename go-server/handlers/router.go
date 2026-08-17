@@ -35,6 +35,8 @@ func RegisterRoutes(mux *http.ServeMux, db *bun.DB) {
 	jwtGuard := JWTGuard(pubKey)
 	protectedMux := http.NewServeMux()
 	mux.Handle("/protected/", jwtGuard(protectedMux)) //all calls to /protected/ pass through jwtGuard
+	profileHandler := &ProfileHandler{DB: db}
+	protectedMux.HandleFunc("GET /protected/matches", profileHandler.ProfileGet)
 	//TODO: implement profile handlers
 
 	//TODO: create APIGuard middleware
