@@ -6,10 +6,41 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/uptrace/bun"
 )
+
+type Group struct {
+	mux        *http.ServeMux
+	prefix     string
+	middleware func(http.Handler) http.Handler
+}
+
+func NewGroup(mux *http.ServeMux, prefix string, middleware func(http.Handler) http.Handler) *Group {
+	return &Group{
+		mux:        mux,
+		prefix:     strings.TrimSuffix(prefix, "/"),
+		middleware: middleware,
+	}
+}
+
+// helper to wrap functions in middleware
+func (g *Group) HandleFunc(pattern string, handler http.HandlerFunc) {
+	parts := strings.SplitN(pattern, " ", 2)
+	var fullPattern string
+
+	if len(parts) == 2 {
+		method := parts[0]
+		path := "/" + strings.TrimPrefix(parts[1], "/")
+		fullPattern = method + " " + g.prefix + path
+	} else {
+		path := "/" + strings.TrimPrefix(parts[0], "/")
+		fullPattern = g.prefix + path
+	}
+	g.mux.Handle(fullPattern, g.middleware(handler))
+}
 
 func RegisterRoutes(mux *http.ServeMux, db *bun.DB) {
 	authHandler := &AuthHandler{DB: db}
@@ -33,10 +64,10 @@ func RegisterRoutes(mux *http.ServeMux, db *bun.DB) {
 		log.Fatalf("Failed to load JWT public key: %v", err)
 	}
 	jwtGuard := JWTGuard(pubKey)
-	protectedMux := http.NewServeMux()
-	mux.Handle("/protected/", jwtGuard(protectedMux)) //all calls to /protected/ pass through jwtGuard
+	protected := NewGroup(mux, "/protected", jwtGuard)
 	profileHandler := &ProfileHandler{DB: db}
-	protectedMux.HandleFunc("GET /protected/matches", profileHandler.ProfileGet)
+	protected.HandleFunc("GET /profile", profileHandler.ProfileGet)
+
 	//TODO: implement profile handlers
 
 	//TODO: create APIGuard middleware

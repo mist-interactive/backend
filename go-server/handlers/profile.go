@@ -1,8 +1,8 @@
 package handlers
 
 import (
-	"dbBackend/models"
 	"encoding/json"
+	"log"
 	"net/http"
 
 	"github.com/uptrace/bun"
@@ -18,13 +18,22 @@ type ProfilePatchInput struct {
 	Email     *string `json:"email" validate:"omitempty,email,max=255"`
 }
 
+type UserProfile struct {
+	Username  string  `bun:"username" json:"username"`
+	Email     string  `bun:"email" json:"email"`
+	Bio       string  `bun:"bio" json:"bio"`
+	AvatarURL *string `bun:"avatar_url" json:"avatarUrl"`
+}
+
 func (h *ProfileHandler) ProfileGet(w http.ResponseWriter, r *http.Request) {
+	log.Println("--> ProfileGet hit!")
+
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == 0 {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
-	profile := new(models.User)
+	profile := new(UserProfile)
 	err := h.DB.NewSelect().
 		Table("users").
 		Where("id = ?", claims.UserID).
