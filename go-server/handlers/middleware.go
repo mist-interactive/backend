@@ -5,6 +5,7 @@ import (
 	"crypto/rsa"
 	"dbBackend/models"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 
@@ -52,6 +53,7 @@ func UserFromContext(ctx context.Context) (*models.User, bool) {
 func JWTGuard(publicKey *rsa.PublicKey) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			log.Println("--> JWTGuard hit!")
 			tokenStr := extractBearerToken(r)
 			if tokenStr == "" {
 				http.Error(w, "Unauthorized: Missing Bearer token", http.StatusUnauthorized)
