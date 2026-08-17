@@ -29,15 +29,15 @@ func RegisterRoutes(mux *http.ServeMux, db *bun.DB) {
 
 	// all /protected/* routes require a valid JWT
 	pubKey, err := GetPublicKey()
-  if err != nil {
-    log.Fatalf("Failed to load JWT public key: %v", err)
-  }
-  jwtGuard := JWTGuard(pubKey)
-  protectedMux := http.NewServeMux()
-  mux.Handle("/protected/", jwtGuard(protectedMux)) //all calls to /protected/ pass through jwtGuard
-  //TODO: implement profile handlers
+	if err != nil {
+		log.Fatalf("Failed to load JWT public key: %v", err)
+	}
+	jwtGuard := JWTGuard(pubKey)
+	protectedMux := http.NewServeMux()
+	mux.Handle("/protected/", jwtGuard(protectedMux)) //all calls to /protected/ pass through jwtGuard
+	//TODO: implement profile handlers
 
-  //TODO: create APIGuard middleware
+	//TODO: create APIGuard middleware
 	matchHandler := &MatchHandler{DB: db}
 	mux.HandleFunc("POST /internal/matches", matchHandler.MatchCreate)
 }
@@ -67,4 +67,3 @@ func GetPublicKey() (*rsa.PublicKey, error) {
 	}
 	return publicKey, nil
 }
-I had the thought
