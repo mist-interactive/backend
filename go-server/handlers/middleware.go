@@ -2,15 +2,20 @@ package handlers
 
 import (
 	"context"
+	"crypto/rsa"
 	"dbBackend/models"
+	"fmt"
 	"net/http"
+	"strings"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/uptrace/bun"
 )
 
 type contextKey string
 
 const userContextKey contextKey = "user"
+const claimsKey contextKey = "jwt_claims"
 
 func AuthRequired(db *bun.DB) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
@@ -42,4 +47,53 @@ func AuthRequired(db *bun.DB) func(http.Handler) http.Handler {
 func UserFromContext(ctx context.Context) (*models.User, bool) {
 	user, ok := ctx.Value(userContextKey).(*models.User)
 	return user, ok
+}
+
+func JWTGuard(publicKey *rsa.PublicKey) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			tokenStr := extractBearerToken(r)
+			if tokenStr == "" {
+				http.Error(w, "Unauthorized: Missing Bearer token", http.StatusUnauthorized)
+				return
+			}
+
+			var claims JWTClaims
+			//third argument is a function that returns the key to be used
+			//if the token has the correct signing method, returns the (public key, nil), else returns (nil, error)
+			//that key is then used by ParseWithClaims to validate the payload
+			token, err := jwt.ParseWithClaims(tokenStr, &claims, func(token *jwt.Token) (any, error) {
+				if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
+					return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+				}
+				return publicKey, nil
+			})
+
+			if err != nil || !token.Valid {
+				http.Error(w, "Unauthorized: Invalid or expired token", http.StatusUnauthorized)
+				return
+			}
+			ctx := context.WithValue(r.Context(), claimsKey, &claims) //add the claims to context, so the following handler has access to the payload
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
+
+// Helper to extract Bearer token from Authorization header
+func extractBearerToken(r *http.Request) string {
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" {
+		return ""
+	}
+	parts := strings.SplitN(authHeader, " ", 2)
+	if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") {
+		return parts[1]
+	}
+	return ""
+}
+
+// Helper to extract JWTClaims from request context in handlers
+func ClaimsFromContext(ctx context.Context) (*JWTClaims, bool) {
+	claims, ok := ctx.Value(claimsKey).(*JWTClaims)
+	return claims, ok
 }

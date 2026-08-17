@@ -16,5 +16,5 @@ type User struct {
 	Bio       string    `bun:"bio" json:"bio"`
 	AvatarURL *string   `bun:"avatar_url" json:"avatarUrl"` //pointer so it can be null
 	CreatedAt time.Time `bun:"created_at,nullzero,notnull,default:current_timestamp" json:"created_at"`
-	UpdatedAt time.Time `bun:"updated_at,nullzero,default:current_timestamp" json:"updated_at"`
+	UpdatedAt time.Time `bun:"updated_at,nullzero,notnull,default:current_timestamp" json:"updated_at"`
 }

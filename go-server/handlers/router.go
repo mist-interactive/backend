@@ -18,6 +18,7 @@ func RegisterRoutes(mux *http.ServeMux, db *bun.DB) {
 	registerHandler := &RegisterHandler{DB: db}
 	mux.HandleFunc("POST /api/register", registerHandler.TryRegister)
 
+	//requires session token
 	rsaKey, err := GetPrivateKey()
 	if err != nil {
 		log.Fatalf("%v", err)
@@ -26,7 +27,17 @@ func RegisterRoutes(mux *http.ServeMux, db *bun.DB) {
 	tokenHandler := &TokenHandler{PrivateKey: rsaKey}
 	mux.Handle("POST /api/renew", authGuard(http.HandlerFunc(tokenHandler.IssueToken)))
 
-	//TODO: Add API guard middleware
+	// all /protected/* routes require a valid JWT
+	pubKey, err := GetPublicKey()
+  if err != nil {
+    log.Fatalf("Failed to load JWT public key: %v", err)
+  }
+  jwtGuard := JWTGuard(pubKey)
+  protectedMux := http.NewServeMux()
+  mux.Handle("/protected/", jwtGuard(protectedMux)) //all calls to /protected/ pass through jwtGuard
+  //TODO: implement profile handlers
+
+  //TODO: create APIGuard middleware
 	matchHandler := &MatchHandler{DB: db}
 	mux.HandleFunc("POST /internal/matches", matchHandler.MatchCreate)
 }
@@ -43,3 +54,17 @@ func GetPrivateKey() (*rsa.PrivateKey, error) {
 	}
 	return signKey, nil
 }
+
+func GetPublicKey() (*rsa.PublicKey, error) {
+	pubPath := os.Getenv("JWT_PUBLIC_KEY_PATH")
+	pubBytes, err := os.ReadFile(pubPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open public key verify file: %v", err)
+	}
+	publicKey, err := jwt.ParseRSAPublicKeyFromPEM(pubBytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to cryptographically compile RSA public key: %v", err)
+	}
+	return publicKey, nil
+}
+I had the thought
