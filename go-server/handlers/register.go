@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/uptrace/bun"
-	"github.com/uptrace/bun/driver/pgdriver"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -36,20 +35,7 @@ func (h *RegisterHandler) TryRegister(w http.ResponseWriter, r *http.Request) {
 		Model(&newUser).
 		Exec(r.Context())
 	if err != nil {
-		if pgErr, ok := err.(pgdriver.Error); ok {
-			if pgErr.Field('C') == "23505" {
-				errMessage := pgErr.Error()
-				if strings.Contains(errMessage, "username") {
-					http.Error(w, "Conflict: That username is already registered.", http.StatusConflict)
-					return
-				}
-				if strings.Contains(errMessage, "email") {
-					http.Error(w, "Conflict: That email address is already registered.", http.StatusConflict)
-					return
-				}
-			}
-		}
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		HandleDBError(w, err, "Insert User")
 		return
 	}
 	w.WriteHeader(http.StatusCreated)

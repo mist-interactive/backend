@@ -55,7 +55,7 @@ func (h *AuthHandler) CheckPassword(w http.ResponseWriter, r *http.Request) {
 		Model(newSession).
 		Exec(r.Context())
 	if err != nil {
-		http.Error(w, "Failed to create session", http.StatusInternalServerError)
+		HandleDBError(w, err, "Session creation")
 		return
 	}
 	http.SetCookie(w, &http.Cookie{
