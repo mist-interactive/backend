@@ -1,9 +1,11 @@
 package handlers
 
 import (
+	"dbBackend/models"
 	"encoding/json"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/uptrace/bun"
 )
@@ -41,10 +43,51 @@ func (h *ProfileHandler) ProfileGet(w http.ResponseWriter, r *http.Request) {
 		Scan(r.Context(), profile)
 
 	if err != nil {
-		http.Error(w, "User not found", http.StatusNotFound)
+		HandleDBError(w, err, "User profile get")
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(profile)
+}
+
+func (h *ProfileHandler) ProfilePatch(w http.ResponseWriter, r *http.Request) {
+	claims, ok := ClaimsFromContext(r.Context())
+	if !ok || claims.UserID == 0 {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	input, err := DecodeAndValidate[ProfilePatchInput](r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if input.isEmpty() {
+		http.Error(w, "At least one field must be provided", http.StatusBadRequest)
+		return
+	}
+	now := time.Now()
+	query := h.DB.NewUpdate().
+		Model((*models.User)(nil)).
+		Where("id = ?", claims.UserID).
+		Set("updated_at = ?", now)
+	if input.Bio != nil {
+		query = query.Set("bio = ?", *input.Bio)
+	}
+	if input.Email != nil {
+		query = query.Set("email = ?", *input.Email)
+	}
+	if input.AvatarURL != nil {
+		query = query.Set("avatar_url = ?", *input.AvatarURL)
+	}
+	profile := new(UserProfile)
+	err = query.Returning("username, email, bio, avatar_url").Scan(r.Context(), profile)
+	if err != nil {
+		HandleDBError(w, err, "User")
+		return
+	}
+}
+
+func (p ProfilePatchInput) isEmpty() bool {
+	return p.Bio == nil && p.AvatarURL == nil && p.Email == nil
 }
