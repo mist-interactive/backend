@@ -37,7 +37,7 @@ func (h *MatchHandler) MatchCreate(w http.ResponseWriter, r *http.Request) {
 		Model(match).
 		Scan(r.Context())
 	if err != nil {
-		http.Error(w, "Failed to create match entry in database"+err.Error(), http.StatusInternalServerError)
+		HandleDBError(w, err, "Match creation")
 		return
 	}
 
