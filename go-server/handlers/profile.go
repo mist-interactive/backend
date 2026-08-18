@@ -3,6 +3,7 @@ package handlers
 import (
 	"dbBackend/models"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"time"
@@ -98,4 +99,27 @@ func (h *ProfileHandler) ProfilePatch(w http.ResponseWriter, r *http.Request) {
 
 func (p ProfilePatchInput) isEmpty() bool {
 	return p.Bio == nil && p.AvatarURL == nil && p.Email == nil
+}
+
+func (h *ProfileHandler) ProfileGetByUsername(w http.ResponseWriter, r *http.Request) {
+	userStr := r.PathValue("username")
+	log.Printf("Getting profile with username '%s'\n", userStr)
+	if userStr == "" {
+		http.Error(w, "No username provided", http.StatusBadRequest)
+		return
+	}
+	profile := new(UserProfile)
+	err := h.DB.NewSelect().
+		Table("users").
+		Where("username = ?", userStr).
+		Column("username", "email", "bio", "avatar_url").
+		Scan(r.Context(), profile)
+
+	if err != nil {
+		HandleDBError(w, err, fmt.Sprintf("User profile get by username '%s'", userStr))
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(profile)
 }
