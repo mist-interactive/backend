@@ -67,6 +67,7 @@ func RegisterRoutes(mux *http.ServeMux, db *bun.DB) {
 	protected := NewGroup(mux, "/api/protected", jwtGuard)
 	profileHandler := &ProfileHandler{DB: db}
 	protected.HandleFunc("GET /profile", profileHandler.ProfileGet)
+	protected.HandleFunc("PATCH /profile", profileHandler.ProfilePatch)
 
 	//TODO: implement profile handlers
 
