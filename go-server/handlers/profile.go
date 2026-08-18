@@ -88,7 +88,7 @@ func (h *ProfileHandler) ProfilePatch(w http.ResponseWriter, r *http.Request) {
 	profile := new(UserProfile)
 	err = query.Returning("username, email, bio, avatar_url").Scan(r.Context(), profile)
 	if err != nil {
-		HandleDBError(w, err, "User")
+		HandleDBError(w, err, "User profile get")
 		return
 	}
 	//Return the updated profile data
