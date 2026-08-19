@@ -58,13 +58,13 @@ func RegisterRoutes(mux *http.ServeMux, db *bun.DB) {
 	tokenHandler := &TokenHandler{PrivateKey: rsaKey}
 	mux.Handle("POST /api/renew", authGuard(http.HandlerFunc(tokenHandler.IssueToken)))
 
-	// all /protected/* routes require a valid JWT
+	// all /api/protected/* routes require a valid JWT
 	pubKey, err := GetPublicKey()
 	if err != nil {
 		log.Fatalf("Failed to load JWT public key: %v", err)
 	}
 	jwtGuard := JWTGuard(pubKey)
-	protected := NewGroup(mux, "/protected", jwtGuard)
+	protected := NewGroup(mux, "/api/protected", jwtGuard)
 	profileHandler := &ProfileHandler{DB: db}
 	protected.HandleFunc("GET /profile", profileHandler.ProfileGet)
 
@@ -72,7 +72,7 @@ func RegisterRoutes(mux *http.ServeMux, db *bun.DB) {
 
 	//TODO: create APIGuard middleware
 	matchHandler := &MatchHandler{DB: db}
-	mux.HandleFunc("POST /internal/matches", matchHandler.MatchCreate)
+	mux.HandleFunc("POST /api/internal/matches", matchHandler.MatchCreate)
 }
 
 func GetPrivateKey() (*rsa.PrivateKey, error) {

@@ -2,11 +2,4 @@ localhost:8443 {
 	handle /api/* {
 		reverse_proxy go-server:8080 # if running containerized
 	}
-
-  handle /protected/* {
-		reverse_proxy go-server:8080 # if running containerized
-	}
-  handle /internal/* {
-		reverse_proxy go-server:8080 # if running containerized
-  }
 }
