@@ -52,6 +52,7 @@ func (h *ProfileHandler) ProfileGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *ProfileHandler) ProfilePatch(w http.ResponseWriter, r *http.Request) {
+	//first, check what middleware passed and what input contains
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == 0 {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
@@ -66,11 +67,13 @@ func (h *ProfileHandler) ProfilePatch(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "At least one field must be provided", http.StatusBadRequest)
 		return
 	}
+	//everything was ok, start building the update query, basics first
 	now := time.Now()
 	query := h.DB.NewUpdate().
 		Model((*models.User)(nil)).
 		Where("id = ?", claims.UserID).
 		Set("updated_at = ?", now)
+	// for each field, if it's not nil, add it to the update
 	if input.Bio != nil {
 		query = query.Set("bio = ?", *input.Bio)
 	}
@@ -80,12 +83,17 @@ func (h *ProfileHandler) ProfilePatch(w http.ResponseWriter, r *http.Request) {
 	if input.AvatarURL != nil {
 		query = query.Set("avatar_url = ?", *input.AvatarURL)
 	}
+	//Do the update while scanning data to memory
 	profile := new(UserProfile)
 	err = query.Returning("username, email, bio, avatar_url").Scan(r.Context(), profile)
 	if err != nil {
 		HandleDBError(w, err, "User")
 		return
 	}
+	//Return the updated profile data
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(profile)
 }
 
 func (p ProfilePatchInput) isEmpty() bool {
