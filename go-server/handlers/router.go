@@ -73,15 +73,7 @@ func RegisterRoutes(mux *http.ServeMux, db *bun.DB) {
 
 	//TODO: create APIGuard middleware
 	matchHandler := &MatchHandler{DB: db}
-<<<<<<< HEAD
-<<<<<<< HEAD
 	mux.HandleFunc("POST /api/internal/matches", matchHandler.MatchCreate)
-=======
-	mux.HandleFunc("POST /internal/matches", matchHandler.MatchesCreate)
->>>>>>> bca6585 (feat(GET profile/{username}))
-=======
-	mux.HandleFunc("POST /internal/matches", matchHandler.MatchCreate)
->>>>>>> af8ac18 (fix)
 }
 
 func GetPrivateKey() (*rsa.PrivateKey, error) {
