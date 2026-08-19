@@ -123,3 +123,58 @@ func (h *ProfileHandler) ProfileGetByUsername(w http.ResponseWriter, r *http.Req
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(profile)
 }
+
+func (h *ProfileHandler) ProfileDelete(w http.ResponseWriter, r *http.Request) {
+	claims, ok := ClaimsFromContext(r.Context())
+	if !ok || claims.UserID == 0 {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	ctx := r.Context()
+
+	// Begin a transaction: a connected set of database actions, that can be undone if any of them goes wrong
+	tx, err := h.DB.BeginTx(ctx, nil)
+	if err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback() //register the Rollback to run if we exit befor committing the transaction
+	anonymized := fmt.Sprintf("deleted_user_%d", claims.UserID)
+	now := time.Now()
+
+	// Add things to the transaction
+	// 1. anonymize the users table entry
+	updateUserQuery := tx.NewUpdate().
+		Table("users").
+		Where("id = ?", claims.UserID).
+		Set("username = ?", anonymized).
+		Set("email = NULL").
+		Set("password_hash = NULL").
+		Set("bio = ''").
+		Set("avatar_url = NULL").
+		Set("updated_at = ?", now)
+	// 2. delete any active sessions
+	deleteSessionsQuery := tx.NewDelete().
+		Table("sessions").
+		Where("user_id = ?", claims.UserID)
+
+	// Execute transactions
+	if _, err := updateUserQuery.Exec(ctx); err != nil {
+		HandleDBError(w, err, fmt.Sprintf("User deletion '%s'", claims.Username))
+		return
+	}
+	if _, err := deleteSessionsQuery.Exec(ctx); err != nil {
+		HandleDBError(w, err, fmt.Sprintf("Session deletion for user '%s'", claims.Username))
+		return
+	}
+
+	//everything went through, so we commit all actions
+	if err := tx.Commit(); err != nil {
+		HandleDBError(w, err, fmt.Sprintf("Committing profile deletion transaction for user '%s'", claims.Username))
+		return
+	}
+
+	//Set a non-valid Cookie to replace the old one
+	ClearSessionCookie(w)
+	w.WriteHeader(http.StatusNoContent)
+}
