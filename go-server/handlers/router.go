@@ -69,6 +69,7 @@ func RegisterRoutes(mux *http.ServeMux, db *bun.DB) {
 	protected.HandleFunc("GET /profile", profileHandler.ProfileGet)
 	protected.HandleFunc("PATCH /profile", profileHandler.ProfilePatch)
 	protected.HandleFunc("GET /profile/{username}", profileHandler.ProfileGetByUsername)
+	protected.HandleFunc("DELETE /profile", profileHandler.ProfileDelete)
 
 	//TODO: create APIGuard middleware
 	matchHandler := &MatchHandler{DB: db}
