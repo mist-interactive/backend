@@ -17,7 +17,7 @@ Contributions:
 
 Docker is used to run separate services in isolated containers and networks, controlled by a Docker Compose file.
 
-- at the front gate there is a **Caddy** container acting as a reverse proxy, listening for incoming HTTPS traffic on port 8443 (it also accepts incoming HTTP traffic on port 8000 only for upgrade-to-HTTPS purposes). Traffic to `/api/*` and `/internal/*` gets routed to the **Backend server**, which in turn connects to the **Database Server**.
+- at the front gate there is a **Caddy** container acting as a reverse proxy, listening for incoming HTTPS traffic on port 8443 (it also accepts incoming HTTP traffic on port 8000 only for upgrade-to-HTTPS purposes). Traffic to `/api/*` gets routed to the **Backend server**, which in turn connects to the **Database Server**.
 
 #### Backend server
 
@@ -102,8 +102,8 @@ which should result in:
   - `/api/register`
   - `/api/login`
   - `/api/renew`
-  - `/internal/matches`
-  - `/internal/matches/{id}`
+  - `/api/internal/matches`
+  - `/api/internal/matches/{id}`
 - the reverse proxy `caddy-test` exposing ports 8000 (HTTP) and 8443 (HTTPS), while backend and databse don't expose any ports to the host network
 
 Functionality can be tested using Postman.
@@ -169,11 +169,11 @@ RegisteredClaims: jwt.RegisteredClaims{
 
 We use 60s as the lifetime currently.
 
-#### API key protected routes: `/internal/*`
+#### API key protected routes: `/api/internal/*`
 
 These routes are intended to be used by the game server when it needs to get or store data in the database. This is accomplished by a middleware, that checks whether the request has a key provided in the header, and that it matches a known key
 
-##### `POST /internal/matches`
+##### `POST /api/internal/matches`
 
 Used to create a new match entry in the database. The expected request body, as defined in `matches.go`:
 
@@ -194,7 +194,7 @@ So to create a match record, you just send the player ids. The `status` field is
 
 This value can be later used to update the result of the match:
 
-##### `PATCH /internal/matches/{id}`
+##### `PATCH /api/internal/matches/{id}`
 
 Used to update a match with a result. The expected request body, as defined in `matches.go`:
 
@@ -209,19 +209,19 @@ This means that the "`result`" must be one of `player1_win`, `player2_win`, `dra
 
 To perform an update, we first filter the `matches` table to only include entries with the `id` specified in the request address, and only ones where status is `in_progress`. This means a match result can only be updated once, while trying to update an id that doesn't exist in the table or that doesn't have status `in_progress`, results in an error `http.StatusConflict` (409) being returned.
 
-#### JWT protected routes: `/protected/*`
+#### JWT protected routes: `/api/protected/*`
 
 These routes are protected by a JWT checking middleware, which will extract the userid from the token after validating the signature and expiration status. That id is passed on to the handlers in the request context.
 
-##### `GET /protected/profile`
+##### `GET /api/protected/profile`
 
 This returns the users own profile. Response is JSON, exact details TBD.
 
-##### `PATCH /protected/profile`
+##### `PATCH /api/protected/profile`
 
 This updates the users information with the selected updates. response is status code only.
 
-##### `DELETE /protected/profile`
+##### `DELETE /api/protected/profile`
 
 This deletes the users profile. response is status code only
 
