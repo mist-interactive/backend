@@ -130,6 +130,7 @@ func (h *ProfileHandler) ProfileDelete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
+	log.Printf("Deleting user '%d'\n", claims.UserID)
 	ctx := r.Context()
 
 	// Begin a transaction: a connected set of database actions, that can be undone if any of them goes wrong
@@ -148,8 +149,8 @@ func (h *ProfileHandler) ProfileDelete(w http.ResponseWriter, r *http.Request) {
 		Table("users").
 		Where("id = ?", claims.UserID).
 		Set("username = ?", anonymized).
-		Set("email = NULL").
-		Set("password_hash = NULL").
+		Set("email = ?", anonymized+"@internal").
+		Set("password_hash = ?", "deleted").
 		Set("bio = ''").
 		Set("avatar_url = NULL").
 		Set("updated_at = ?", now)
