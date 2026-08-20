@@ -5,13 +5,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/uptrace/bun"
 	"golang.org/x/crypto/bcrypt"
 )
-
-type RegisterHandler struct {
-	DB *bun.DB
-}
 
 type RegisterRequest struct {
 	Username string `json:"username" validate:"required,min=3,max=50,username_safety"`
@@ -19,7 +14,7 @@ type RegisterRequest struct {
 	Email    string `json:"email" validate:"required,email,max=255"`
 }
 
-func (h *RegisterHandler) TryRegister(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) TryRegister(w http.ResponseWriter, r *http.Request) {
 	request, err := DecodeAndValidate[RegisterRequest](r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)

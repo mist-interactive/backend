@@ -5,7 +5,7 @@ import (
 	"net/http"
 )
 
-func TokenCreationHandler(w http.ResponseWriter, r *http.Request) {
+func TokenHandler(w http.ResponseWriter, r *http.Request) {
 	user, ok := UserFromContext(r.Context())
 	if !ok {
 		http.Error(w, "Internal Server Error: Context missing user", http.StatusInternalServerError)

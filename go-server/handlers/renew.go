@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"crypto/rsa"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -16,11 +15,7 @@ type JWTClaims struct {
 	jwt.RegisteredClaims
 }
 
-type TokenHandler struct {
-	PrivateKey *rsa.PrivateKey
-}
-
-func (h *TokenHandler) IssueToken(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) IssueToken(w http.ResponseWriter, r *http.Request) {
 	user, ok := UserFromContext(r.Context())
 	if !ok {
 		http.Error(w, "Unauthorized: Context missing user state", http.StatusInternalServerError)

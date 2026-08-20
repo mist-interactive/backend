@@ -37,7 +37,7 @@ func TestToken_Integration(t *testing.T) {
 		t.Fatalf("failed to read private key: %v", err)
 	}
 
-	tokenHandler := &handlers.TokenHandler{PrivateKey: privateKey}
+	tokenHandler := handlers.NewHandler(nil, privateKey, nil)
 	req := httptest.NewRequest(http.MethodPost, "/api/renew", nil)
 	req.AddCookie(&http.Cookie{
 		Name:  "session_id",

@@ -11,7 +11,7 @@ import (
 )
 
 func TestTryRegister_Integration(t *testing.T) {
-	h := &handlers.RegisterHandler{DB: testDB}
+	h := handlers.NewHandler(testDB, nil, nil)
 	tests := []struct {
 		name           string
 		setup          func(t *testing.T) handlers.RegisterRequest

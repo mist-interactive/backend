@@ -4,20 +4,14 @@ import (
 	"dbBackend/models"
 	"encoding/json"
 	"net/http"
-
-	"github.com/uptrace/bun"
 )
-
-type MatchHandler struct {
-	DB *bun.DB
-}
 
 type MatchCreateInput struct {
 	Player1 int64 `json:"player_one" validate:"required"`
 	Player2 int64 `json:"player_two" validate:"required"`
 }
 
-func (h *MatchHandler) MatchCreate(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) MatchCreate(w http.ResponseWriter, r *http.Request) {
 	input, err := DecodeAndValidate[MatchCreateInput](r)
 	if err != nil {
 		http.Error(w, "Problem validating request", http.StatusBadRequest)
