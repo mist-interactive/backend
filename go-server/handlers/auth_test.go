@@ -18,7 +18,7 @@ func TestLogin(t *testing.T) {
 	testUser, cleanup := testutil.MakeTestUser(t, testDB)
 	t.Cleanup(cleanup)
 	testutil.RegisterUser(t, testUser, testDB)
-	handler := &handlers.AuthHandler{DB: testDB}
+	handler := handlers.NewHandler(testDB, nil, nil)
 
 	tests := []struct {
 		name           string
