@@ -7,13 +7,7 @@ import (
 	"log"
 	"net/http"
 	"time"
-
-	"github.com/uptrace/bun"
 )
-
-type ProfileHandler struct {
-	DB *bun.DB
-}
 
 type ProfilePatchInput struct {
 	Bio       *string `json:"bio" validate:"omitempty,max=500"`
@@ -28,7 +22,7 @@ type UserProfile struct {
 	AvatarURL *string `bun:"avatar_url" json:"avatarUrl"`
 }
 
-func (h *ProfileHandler) ProfileGet(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) ProfileGet(w http.ResponseWriter, r *http.Request) {
 	log.Println("--> ProfileGet hit!")
 
 	claims, ok := ClaimsFromContext(r.Context())
@@ -52,7 +46,7 @@ func (h *ProfileHandler) ProfileGet(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(profile)
 }
 
-func (h *ProfileHandler) ProfilePatch(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) ProfilePatch(w http.ResponseWriter, r *http.Request) {
 	//first, check what middleware passed and what input contains
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == 0 {
@@ -101,7 +95,7 @@ func (p ProfilePatchInput) isEmpty() bool {
 	return p.Bio == nil && p.AvatarURL == nil && p.Email == nil
 }
 
-func (h *ProfileHandler) ProfileGetByUsername(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) ProfileGetByUsername(w http.ResponseWriter, r *http.Request) {
 	userStr := r.PathValue("username")
 	log.Printf("Getting profile with username '%s'\n", userStr)
 	if userStr == "" {
@@ -124,7 +118,7 @@ func (h *ProfileHandler) ProfileGetByUsername(w http.ResponseWriter, r *http.Req
 	json.NewEncoder(w).Encode(profile)
 }
 
-func (h *ProfileHandler) ProfileDelete(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) ProfileDelete(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok || claims.UserID == 0 {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
