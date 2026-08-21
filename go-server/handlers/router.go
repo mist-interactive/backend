@@ -83,6 +83,8 @@ func RegisterRoutes(mux *http.ServeMux, db *bun.DB) {
 
 	protected.HandleFunc("POST /friends", h.FriendRequestPost)
 	protected.HandleFunc("GET /friends", h.FriendsListGet)
+	protected.HandleFunc("PATCH /friends/{id}", h.FriendRequestAnswer)
+	protected.HandleFunc("DELETE /friends/{id}", h.FriendDelete)
 
 	//TODO: create APIGuard middleware
 	mux.HandleFunc("POST /api/internal/matches", h.MatchCreate)
