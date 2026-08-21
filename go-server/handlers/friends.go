@@ -3,7 +3,10 @@ package handlers
 import (
 	"dbBackend/models"
 	"encoding/json"
+	"log"
 	"net/http"
+	"strconv"
+	"time"
 )
 
 type FriendRequest struct {
@@ -92,4 +95,60 @@ func (h *Handler) FriendsListGet(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(friends) //response is all the
+}
+
+func (h *Handler) FriendRequestAnswer(w http.ResponseWriter, r *http.Request) {
+	claims, ok := ClaimsFromContext(r.Context())
+	if !ok || claims.UserID == 0 {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	input, err := DecodeAndValidate[FriendRequestAnswer](r) //this forces input.Status to be either 'accepted' or 'blocked'
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	idStr := r.PathValue("id")
+	friendshipID, err := strconv.ParseInt(idStr, 10, 64)
+	now := time.Now()
+	log.Printf("Patching request id %d from user %d\n", friendshipID, claims.UserID)
+	f := models.Friendship{}
+	err = h.DB.NewUpdate().
+		Model(&f).
+		Where("id = ?", friendshipID).
+		Where("friend_id = ? AND status = ?", claims.UserID, models.StatusPending). //you can only change status of a request made to you that is still pending
+		Set("status = ?", input.Status).
+		Set("updated_at = ?", now).
+		Returning("*").
+		Scan(r.Context())
+	if err != nil {
+		HandleDBError(w, err, "Answering friend request")
+		return
+	}
+}
+
+func (h *Handler) FriendDelete(w http.ResponseWriter, r *http.Request) {
+	claims, ok := ClaimsFromContext(r.Context())
+	if !ok || claims.UserID == 0 {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	idStr := r.PathValue("id")
+	friendshipID, err := strconv.ParseInt(idStr, 10, 64)
+	res, err := h.DB.NewDelete().
+		Model((*models.Friendship)(nil)).
+		Where("id = ?", friendshipID).
+		Where("friend_id = ? OR user_id = ?", claims.UserID, claims.UserID). //you can delete a friendship from either side
+		Exec(r.Context())
+	if err != nil {
+		HandleDBError(w, err, "Deleting friendship")
+		return
+	}
+	rows, _ := res.RowsAffected()
+	if rows == 0 {
+		http.Error(w, "Friendship not found", http.StatusNotFound)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
