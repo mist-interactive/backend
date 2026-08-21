@@ -72,6 +72,16 @@ erDiagram
     }
     users ||--o{ matches : "as player_one"
     users ||--o{ matches : "as player_two"
+    friendships {
+      bigserial id PK "SERIAL, NOT NULL"
+      bigint user_id FK "FK -> users.id"
+      bigint friend_id FK "FK -> users.id"
+      varchar status "CHECK: pending, accepted, blocked"
+      timestamp created_at
+      timestamp updated_at
+    }
+    users ||--o{ friendships : "as user_id"
+    users ||--o{ friendships : "as friend_id"
 ```
 
 ##### TODO:
@@ -97,11 +107,15 @@ which should result in:
 
 - containers `database`, `caddy-test` and `go-server` launching
 - the backend establishing a connection to the DB
-- the backend creating the `users`, `sessions` and `matches` tables in the DB, as specified in `backend/db/migrations/`
+- the backend creating the `users`, `sessions`, `matches` and `friendships` tables in the DB, as specified in `backend/db/migrations/`
 - the backend registering handlers for endpoints
   - `/api/register`
   - `/api/login`
   - `/api/renew`
+  - `/api/protected/profile`
+  - `/api/protected/profile/{username}`
+  - `/api/protected/friends`
+  - `/api/protected/friends/{id}`
   - `/api/internal/matches`
   - `/api/internal/matches/{id}`
 - the reverse proxy `caddy-test` exposing ports 8000 (HTTP) and 8443 (HTTPS), while backend and databse don't expose any ports to the host network
@@ -215,15 +229,98 @@ These routes are protected by a JWT checking middleware, which will extract the 
 
 ##### `GET /api/protected/profile`
 
-This returns the users own profile. Response is JSON, exact details TBD.
+Returns the authenticated user's own profile data:
+
+```json
+{
+  "username": "nraatika",
+  "email": "nraatika@student.hive.fi",
+  "bio": "Hello world",
+  "avatarUrl": "https://example.com/avatar.png"
+}
+```
+
+##### `GET /api/protected/profile/{username}`
+
+Returns public profile information for a specific user:
+
+```json
+{
+  "username": "mhirvasm",
+  "bio": "Player bio",
+  "avatarUrl": null
+}
+```
 
 ##### `PATCH /api/protected/profile`
 
-This updates the users information with the selected updates. response is status code only.
+Updates the authenticated user's profile with optional fields:
+
+```json
+{
+  "bio": "Updated bio text",
+  "avatarUrl": "https://example.com/new-avatar.png",
+  "email": "newemail@student.hive.fi"
+}
+```
+
+Returns the updated `UserProfile` JSON object.
 
 ##### `DELETE /api/protected/profile`
 
-This deletes the users profile. response is status code only
+Soft-deletes and anonymizes the user's account (renaming `username` to `deleted_user_<id>`, wiping email, password hash, bio, and avatar) to preserve match history integrity, and invalidates all active sessions. Returns `200 OK`.
+
+##### `GET /api/protected/friends`
+
+Returns a list of all relationships (accepted friends, incoming/outgoing pending requests, and blocked users initiated by the caller):
+
+```json
+[
+  {
+    "friendship_id": 1,
+    "user_id": 2,
+    "username": "mhirvasm",
+    "avatar_url": null,
+    "status": "pending",
+    "is_incoming": true
+  }
+]
+```
+
+##### `POST /api/protected/friends`
+
+Sends a friend request to a target user:
+
+```json
+{
+  "target_id": 2
+}
+```
+
+Returns `201 Created` with the newly created friendship ID:
+
+```json
+{
+  "id": 1,
+  "status": "pending"
+}
+```
+
+##### `PATCH /api/protected/friends/{id}`
+
+Accepts a pending friend request or blocks a user:
+
+```json
+{
+  "status": "accepted"
+}
+```
+
+Allowed `status` values: `accepted`, `blocked`.
+
+##### `DELETE /api/protected/friends/{id}`
+
+Declines a pending friend request, cancels an outgoing request, or removes an existing friend. Returns `204 No Content`.
 
 ### Testing
 
