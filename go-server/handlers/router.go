@@ -42,38 +42,52 @@ func (g *Group) HandleFunc(pattern string, handler http.HandlerFunc) {
 	g.mux.Handle(fullPattern, g.middleware(handler))
 }
 
+type Handler struct {
+	DB         *bun.DB
+	PrivateKey *rsa.PrivateKey
+	PublicKey  *rsa.PublicKey
+}
+
+func NewHandler(db *bun.DB, privKey *rsa.PrivateKey, pubKey *rsa.PublicKey) *Handler {
+	return &Handler{
+		DB:         db,
+		PrivateKey: privKey,
+		PublicKey:  pubKey,
+	}
+}
+
 func RegisterRoutes(mux *http.ServeMux, db *bun.DB) {
-	authHandler := &AuthHandler{DB: db}
-	mux.HandleFunc("POST /api/login", authHandler.CheckPassword)
-
-	registerHandler := &RegisterHandler{DB: db}
-	mux.HandleFunc("POST /api/register", registerHandler.TryRegister)
-
-	//requires session token
 	rsaKey, err := GetPrivateKey()
 	if err != nil {
 		log.Fatalf("%v", err)
 	}
-	authGuard := AuthRequired(db)
-	tokenHandler := &TokenHandler{PrivateKey: rsaKey}
-	mux.Handle("POST /api/renew", authGuard(http.HandlerFunc(tokenHandler.IssueToken)))
-
-	// all /api/protected/* routes require a valid JWT
 	pubKey, err := GetPublicKey()
 	if err != nil {
 		log.Fatalf("Failed to load JWT public key: %v", err)
 	}
+	h := NewHandler(db, rsaKey, pubKey)
+	mux.HandleFunc("POST /api/login", h.CheckPassword)
+	mux.HandleFunc("POST /api/register", h.TryRegister)
+
+	//requires session token
+	authGuard := AuthRequired(db)
+	mux.Handle("POST /api/renew", authGuard(http.HandlerFunc(h.IssueToken)))
+
+	// all /api/protected/* routes require a valid JWT
 	jwtGuard := JWTGuard(pubKey)
 	protected := NewGroup(mux, "/api/protected", jwtGuard)
-	profileHandler := &ProfileHandler{DB: db}
-	protected.HandleFunc("GET /profile", profileHandler.ProfileGet)
-	protected.HandleFunc("PATCH /profile", profileHandler.ProfilePatch)
-	protected.HandleFunc("GET /profile/{username}", profileHandler.ProfileGetByUsername)
-	protected.HandleFunc("DELETE /profile", profileHandler.ProfileDelete)
+	protected.HandleFunc("GET /profile", h.ProfileGet)
+	protected.HandleFunc("PATCH /profile", h.ProfilePatch)
+	protected.HandleFunc("GET /profile/{username}", h.ProfileGetByUsername)
+	protected.HandleFunc("DELETE /profile", h.ProfileDelete)
+
+	protected.HandleFunc("POST /friends", h.FriendRequestPost)
+	protected.HandleFunc("GET /friends", h.FriendsListGet)
+	protected.HandleFunc("PATCH /friends/{id}", h.FriendRequestAnswer)
+	protected.HandleFunc("DELETE /friends/{id}", h.FriendDelete)
 
 	//TODO: create APIGuard middleware
-	matchHandler := &MatchHandler{DB: db}
-	mux.HandleFunc("POST /api/internal/matches", matchHandler.MatchCreate)
+	mux.HandleFunc("POST /api/internal/matches", h.MatchCreate)
 }
 
 func GetPrivateKey() (*rsa.PrivateKey, error) {
