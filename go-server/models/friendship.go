@@ -17,7 +17,7 @@ const (
 
 type Friendship struct {
 	bun.BaseModel `bun:"table:friendships"`
-	ID            int64            `json:"friendship_id" bun:"id,notnull"`
+	ID            int64            `json:"friendship_id" bun:"id,pk,autoincrement"`
 	UserID        int64            `json:"user_id" bun:"user_id,notnull"`
 	FriendID      int64            `json:"friend_id" bun:"friend_id,notnull"`
 	Status        FriendshipStatus `json:"status" bun:"status,notnull"`
