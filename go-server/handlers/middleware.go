@@ -3,10 +3,12 @@ package handlers
 import (
 	"context"
 	"crypto/rsa"
+	"crypto/subtle"
 	"dbBackend/models"
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -98,4 +100,38 @@ func extractBearerToken(r *http.Request) string {
 func UserIDFromContext(ctx context.Context) (int64, bool) {
 	id, ok := ctx.Value(userIDKey).(int64)
 	return id, ok
+}
+
+func APIGuard(referenceKey string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			key := ExtractAPIKey(r)
+			if key == "" || subtle.ConstantTimeCompare([]byte(key), []byte(referenceKey)) != 1 {
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+func ExtractAPIKey(r *http.Request) string {
+	if key := r.Header.Get("X-API-Key"); key != "" {
+		return key
+	}
+	auth := r.Header.Get("Authorization")
+	return strings.TrimPrefix(auth, "Bearer ")
+}
+
+func InjectPathIDContext(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		idStr := r.PathValue("id")
+		userID, err := strconv.ParseInt(idStr, 10, 64)
+		if err != nil {
+			http.Error(w, "Invalid user ID in path", http.StatusBadRequest)
+			return
+		}
+		ctx := context.WithValue(r.Context(), userIDKey, userID)
+		next(w, r.WithContext(ctx))
+	}
 }
