@@ -86,8 +86,32 @@ func RegisterRoutes(mux *http.ServeMux, db *bun.DB) {
 	protected.HandleFunc("PATCH /friends/{id}", h.FriendRequestAnswer)
 	protected.HandleFunc("DELETE /friends/{id}", h.FriendDelete)
 
-	//TODO: create APIGuard middleware
-	mux.HandleFunc("POST /api/internal/matches", h.MatchCreate)
+	// Internal routes protected by APIGuard
+	apiKey, err := getAPIKey()
+	if err != nil {
+		log.Fatalf("%v", err)
+	}
+	apiGuard := APIGuard(apiKey)
+	internal := NewGroup(mux, "/api/internal", apiGuard)
+
+	internal.HandleFunc("POST /matches", h.MatchCreate)
+
+	// WS service internal endpoints
+	internal.HandleFunc("GET /friends/{id}", InjectPathIDContext(h.FriendsListGet))
+}
+
+func getAPIKey() (string, error) {
+	keyPath := os.Getenv("GAMESERVER_API_KEY_PATH")
+	if keyPath == "" {
+		return "", fmt.Errorf("Critical: GAMESERVER_API_KEY_PATH is not set")
+	}
+	keyBytes, err := os.ReadFile(keyPath)
+	if err != nil {
+		return "", fmt.Errorf("Critical: Failed to read API key file at %s: %v", keyPath, err)
+	} else if len(keyBytes) != 65 {
+		return "", fmt.Errorf("Critical: Unexpected length of key : %d, expected 65", len(keyBytes))
+	}
+	return string(keyBytes), nil
 }
 
 func GetPrivateKey() (*rsa.PrivateKey, error) {
