@@ -33,18 +33,14 @@ type FriendshipItemResponse struct {
 }
 
 func (h *Handler) FriendRequestPost(w http.ResponseWriter, r *http.Request) {
-	claims, ok := ClaimsFromContext(r.Context())
-	if !ok || claims.UserID == 0 {
+	userID, ok := UserIDFromContext(r.Context())
+	if !ok || userID == 0 {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 	input, err := DecodeAndValidate[FriendRequest](r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	if input.Target == claims.Username {
-		http.Error(w, "Cannot friend yourself", http.StatusBadRequest)
 		return
 	}
 
@@ -54,10 +50,13 @@ func (h *Handler) FriendRequestPost(w http.ResponseWriter, r *http.Request) {
 		HandleDBError(w, err, fmt.Sprintf("User '%s'", input.Target))
 		return
 	}
-
+	if targetUser.ID == userID {
+		http.Error(w, "Cannot friend yourself", http.StatusBadRequest)
+		return
+	}
 	//Use fetched user data to populate friendship entry
 	f := models.Friendship{
-		UserID:   claims.UserID,
+		UserID:   userID,
 		FriendID: targetUser.ID,
 		Status:   models.StatusPending,
 	}
@@ -78,8 +77,8 @@ func (h *Handler) FriendRequestPost(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) FriendsListGet(w http.ResponseWriter, r *http.Request) {
-	claims, ok := ClaimsFromContext(r.Context())
-	if !ok || claims.UserID == 0 {
+	userID, ok := UserIDFromContext(r.Context())
+	if !ok || userID == 0 {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -94,10 +93,10 @@ func (h *Handler) FriendsListGet(w http.ResponseWriter, r *http.Request) {
 		ColumnExpr("u.username AS username").
 		ColumnExpr("u.avatar_url AS avatar_url").
 		ColumnExpr("f.status AS status").
-		ColumnExpr("(f.friend_id = ?) AS is_incoming", claims.UserID).
-		Join("JOIN users AS u ON (f.user_id = ? AND f.friend_id = u.id) OR (f.friend_id = ? AND f.user_id = u.id)", claims.UserID, claims.UserID). //current user is either user or friend in the records. this checks both
-		Where("f.user_id = ? OR f.friend_id = ?", claims.UserID, claims.UserID).
-		Where("f.status != ? OR f.user_id = ?", models.StatusBlocked, claims.UserID). // Hide blocks unless current user is the blocker
+		ColumnExpr("(f.friend_id = ?) AS is_incoming", userID).
+		Join("JOIN users AS u ON (f.user_id = ? AND f.friend_id = u.id) OR (f.friend_id = ? AND f.user_id = u.id)", userID, userID). //current user is either user or friend in the records. this checks both
+		Where("f.user_id = ? OR f.friend_id = ?", userID, userID).
+		Where("f.status != ? OR f.user_id = ?", models.StatusBlocked, userID). // Hide blocks unless current user is the blocker
 		Scan(r.Context(), &friends)
 	if err != nil {
 		HandleDBError(w, err, "Friends list")
@@ -109,8 +108,8 @@ func (h *Handler) FriendsListGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) FriendRequestAnswer(w http.ResponseWriter, r *http.Request) {
-	claims, ok := ClaimsFromContext(r.Context())
-	if !ok || claims.UserID == 0 {
+	userID, ok := UserIDFromContext(r.Context())
+	if !ok || userID == 0 {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -122,12 +121,12 @@ func (h *Handler) FriendRequestAnswer(w http.ResponseWriter, r *http.Request) {
 	idStr := r.PathValue("id")
 	friendshipID, err := strconv.ParseInt(idStr, 10, 64)
 	now := time.Now()
-	log.Printf("Patching request id %d from user %d\n", friendshipID, claims.UserID)
+	log.Printf("Patching request id %d from user %d\n", friendshipID, userID)
 	f := models.Friendship{}
 	err = h.DB.NewUpdate().
 		Model(&f).
 		Where("id = ?", friendshipID).
-		Where("friend_id = ? AND status = ?", claims.UserID, models.StatusPending). //you can only change status of a request made to you that is still pending
+		Where("friend_id = ? AND status = ?", userID, models.StatusPending). //you can only change status of a request made to you that is still pending
 		Set("status = ?", input.Status).
 		Set("updated_at = ?", now).
 		Returning("*").
@@ -139,8 +138,8 @@ func (h *Handler) FriendRequestAnswer(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) FriendDelete(w http.ResponseWriter, r *http.Request) {
-	claims, ok := ClaimsFromContext(r.Context())
-	if !ok || claims.UserID == 0 {
+	userID, ok := UserIDFromContext(r.Context())
+	if !ok || userID == 0 {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -149,7 +148,7 @@ func (h *Handler) FriendDelete(w http.ResponseWriter, r *http.Request) {
 	res, err := h.DB.NewDelete().
 		Model((*models.Friendship)(nil)).
 		Where("id = ?", friendshipID).
-		Where("friend_id = ? OR user_id = ?", claims.UserID, claims.UserID). //you can delete a friendship from either side
+		Where("friend_id = ? OR user_id = ?", userID, userID). //you can delete a friendship from either side
 		Exec(r.Context())
 	if err != nil {
 		HandleDBError(w, err, "Deleting friendship")

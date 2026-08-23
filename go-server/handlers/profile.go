@@ -25,15 +25,15 @@ type UserProfile struct {
 func (h *Handler) ProfileGet(w http.ResponseWriter, r *http.Request) {
 	log.Println("--> ProfileGet hit!")
 
-	claims, ok := ClaimsFromContext(r.Context())
-	if !ok || claims.UserID == 0 {
+	userID, ok := UserIDFromContext(r.Context())
+	if !ok || userID == 0 {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 	profile := new(UserProfile)
 	err := h.DB.NewSelect().
 		Table("users").
-		Where("id = ?", claims.UserID).
+		Where("id = ?", userID).
 		Column("username", "email", "bio", "avatar_url").
 		Scan(r.Context(), profile)
 
@@ -48,8 +48,8 @@ func (h *Handler) ProfileGet(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) ProfilePatch(w http.ResponseWriter, r *http.Request) {
 	//first, check what middleware passed and what input contains
-	claims, ok := ClaimsFromContext(r.Context())
-	if !ok || claims.UserID == 0 {
+	userID, ok := UserIDFromContext(r.Context())
+	if !ok || userID == 0 {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -66,7 +66,7 @@ func (h *Handler) ProfilePatch(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	query := h.DB.NewUpdate().
 		Model((*models.User)(nil)).
-		Where("id = ?", claims.UserID).
+		Where("id = ?", userID).
 		Set("updated_at = ?", now)
 	// for each field, if it's not nil, add it to the update
 	if input.Bio != nil {
@@ -119,12 +119,12 @@ func (h *Handler) ProfileGetByUsername(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) ProfileDelete(w http.ResponseWriter, r *http.Request) {
-	claims, ok := ClaimsFromContext(r.Context())
-	if !ok || claims.UserID == 0 {
+	userID, ok := UserIDFromContext(r.Context())
+	if !ok || userID == 0 {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
-	log.Printf("Deleting user '%d'\n", claims.UserID)
+	log.Printf("Deleting user '%d'\n", userID)
 	ctx := r.Context()
 
 	// Begin a transaction: a connected set of database actions, that can be undone if any of them goes wrong
@@ -134,14 +134,14 @@ func (h *Handler) ProfileDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback() //register the Rollback to run if we exit befor committing the transaction
-	anonymized := fmt.Sprintf("deleted_user_%d", claims.UserID)
+	anonymized := fmt.Sprintf("deleted_user_%d", userID)
 	now := time.Now()
 
 	// Add things to the transaction
 	// 1. anonymize the users table entry
 	updateUserQuery := tx.NewUpdate().
 		Table("users").
-		Where("id = ?", claims.UserID).
+		Where("id = ?", userID).
 		Set("username = ?", anonymized).
 		Set("email = ?", anonymized+"@internal").
 		Set("password_hash = ?", "deleted").
@@ -151,21 +151,21 @@ func (h *Handler) ProfileDelete(w http.ResponseWriter, r *http.Request) {
 	// 2. delete any active sessions
 	deleteSessionsQuery := tx.NewDelete().
 		Table("sessions").
-		Where("user_id = ?", claims.UserID)
+		Where("user_id = ?", userID)
 
 	// Execute transactions
 	if _, err := updateUserQuery.Exec(ctx); err != nil {
-		HandleDBError(w, err, fmt.Sprintf("User deletion '%s'", claims.Username))
+		HandleDBError(w, err, fmt.Sprintf("User deletion '%s'", fmt.Sprintf("%d", userID)))
 		return
 	}
 	if _, err := deleteSessionsQuery.Exec(ctx); err != nil {
-		HandleDBError(w, err, fmt.Sprintf("Session deletion for user '%s'", claims.Username))
+		HandleDBError(w, err, fmt.Sprintf("Session deletion for user '%s'", fmt.Sprintf("%d", userID)))
 		return
 	}
 
 	//everything went through, so we commit all actions
 	if err := tx.Commit(); err != nil {
-		HandleDBError(w, err, fmt.Sprintf("Committing profile deletion transaction for user '%s'", claims.Username))
+		HandleDBError(w, err, fmt.Sprintf("Committing profile deletion transaction for user '%s'", fmt.Sprintf("%d", userID)))
 		return
 	}
 
