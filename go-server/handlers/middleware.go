@@ -16,7 +16,7 @@ import (
 type contextKey string
 
 const userContextKey contextKey = "user"
-const claimsKey contextKey = "jwt_claims"
+const userIDKey contextKey = "user_id"
 
 func AuthRequired(db *bun.DB) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
@@ -75,7 +75,7 @@ func JWTGuard(publicKey *rsa.PublicKey) func(http.Handler) http.Handler {
 				http.Error(w, "Unauthorized: Invalid or expired token", http.StatusUnauthorized)
 				return
 			}
-			ctx := context.WithValue(r.Context(), claimsKey, &claims) //add the claims to context, so the following handler has access to the payload
+			ctx := context.WithValue(r.Context(), userIDKey, claims.UserID) //add the user ID to context
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
@@ -94,8 +94,8 @@ func extractBearerToken(r *http.Request) string {
 	return ""
 }
 
-// Helper to extract JWTClaims from request context in handlers
-func ClaimsFromContext(ctx context.Context) (*JWTClaims, bool) {
-	claims, ok := ctx.Value(claimsKey).(*JWTClaims)
-	return claims, ok
+// Helper to extract UserID from request context in handlers
+func UserIDFromContext(ctx context.Context) (int64, bool) {
+	id, ok := ctx.Value(userIDKey).(int64)
+	return id, ok
 }
