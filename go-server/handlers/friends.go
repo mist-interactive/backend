@@ -1,8 +1,10 @@
 package handlers
 
 import (
+	"context"
 	"dbBackend/models"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -10,7 +12,7 @@ import (
 )
 
 type FriendRequest struct {
-	Target int64 `json:"target_id" validate:"required"`
+	Target string `json:"target" validate:"required,min=3,max=50"` //same length constraints as when registering
 }
 
 type FriendRequestAnswer struct {
@@ -41,13 +43,22 @@ func (h *Handler) FriendRequestPost(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if input.Target == claims.UserID {
+	if input.Target == claims.Username {
 		http.Error(w, "Cannot friend yourself", http.StatusBadRequest)
 		return
 	}
+
+	//first get target user data
+	targetUser, err := h.getUserByUsername(r.Context(), input.Target)
+	if err != nil {
+		HandleDBError(w, err, fmt.Sprintf("User '%s'", input.Target))
+		return
+	}
+
+	//Use fetched user data to populate friendship entry
 	f := models.Friendship{
 		UserID:   claims.UserID,
-		FriendID: input.Target,
+		FriendID: targetUser.ID,
 		Status:   models.StatusPending,
 	}
 	err = h.DB.NewInsert().
@@ -151,4 +162,16 @@ func (h *Handler) FriendDelete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) getUserByUsername(ctx context.Context, target string) (*models.User, error) {
+	user := new(models.User)
+	err := h.DB.NewSelect().
+		Model(user).
+		Where("username = ?", target).
+		Scan(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return user, nil
 }
