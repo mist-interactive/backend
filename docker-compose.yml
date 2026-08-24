@@ -28,6 +28,7 @@ services:
       - postgres_user_pw
       - jwt_private_key
       - jwt_public_key
+      - internal_api_key
     env_file:
       - .env
     environment:
@@ -75,6 +76,8 @@ secrets:
     file: ../secrets/jwt_private.pem
   jwt_public_key:
     file: ../secrets/jwt_public.pem
+  internal_api_key:
+    file: ../secrets/gameserver_api_key.txt
 
 networks:
   db_network:
