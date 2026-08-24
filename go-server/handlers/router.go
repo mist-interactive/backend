@@ -115,6 +115,7 @@ func getAPIKey() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("Critical: Failed to read API key file at %s: %v", keyPath, err)
 	}
+
 	key := strings.TrimSpace(string(keyBytes))
 	if len(key) < 32 {
 		return "", fmt.Errorf("Critical: Unexpected length of key : %d, expected >=32", len(key))
