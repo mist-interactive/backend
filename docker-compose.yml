@@ -28,7 +28,11 @@ services:
       - postgres_user_pw
       - jwt_private_key
       - jwt_public_key
+<<<<<<< HEAD
       - internal_api_key
+=======
+      - gameserver_api_key
+>>>>>>> 9bbe51d (fix(devops))
     env_file:
       - .env
     environment:
@@ -82,7 +86,11 @@ secrets:
     file: ../secrets/jwt_private.pem
   jwt_public_key:
     file: ../secrets/jwt_public.pem
+<<<<<<< HEAD
   internal_api_key:
+=======
+  gameserver_api_key:
+>>>>>>> 9bbe51d (fix(devops))
     file: ../secrets/gameserver_api_key.txt
 
 networks:
