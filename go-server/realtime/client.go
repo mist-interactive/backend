@@ -26,12 +26,34 @@ func NewClient(hub *Hub, conn *websocket.Conn, userID int64, username string) *C
 	}
 }
 
+// listens on the Send channel, pushes messages over websocket when channel gets data
 func (c *Client) writePump() {
-	//TODO: listens on Send channel, and sends it over Conn when there is a message
+	defer func() {
+		c.Conn.Close()
+	}()
+
+	for message := range c.Send {
+		err := c.Conn.WriteMessage(websocket.TextMessage, message)
+		if err != nil {
+			return
+		}
+	}
 }
 
+// reads incoming data from the WebSocket until the user disconnects
 func (c *Client) readPump() {
-	//TODO: listens to the Conn, and passes any messages the client sends to the Hub
+	defer func() {
+		c.Hub.unregister <- c
+		c.Conn.Close()
+	}()
+
+	for { // ReadMessage blocks until data arrives or the socket closes (disconnect)
+		_, _, err := c.Conn.ReadMessage() //TODO: catch the actual message, and react
+		if err != nil {
+			break // Disconnected: unregister via the deferred function
+		}
+		// TODO: parse incoming chat messages here
+	}
 }
 
 // helper to send messages without blocking
