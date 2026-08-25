@@ -6,7 +6,6 @@ import (
 	"crypto/subtle"
 	"dbBackend/models"
 	"fmt"
-	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -55,25 +54,13 @@ func UserFromContext(ctx context.Context) (*models.User, bool) {
 func JWTGuard(publicKey *rsa.PublicKey) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			log.Println("--> JWTGuard hit!")
 			tokenStr := extractBearerToken(r)
 			if tokenStr == "" {
 				http.Error(w, "Unauthorized: Missing Bearer token", http.StatusUnauthorized)
 				return
 			}
-
-			var claims JWTClaims
-			//third argument is a function that returns the key to be used
-			//if the token has the correct signing method, returns the (public key, nil), else returns (nil, error)
-			//that key is then used by ParseWithClaims to validate the payload
-			token, err := jwt.ParseWithClaims(tokenStr, &claims, func(token *jwt.Token) (any, error) {
-				if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
-					return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-				}
-				return publicKey, nil
-			})
-
-			if err != nil || !token.Valid {
+			claims, err := ValidateToken(tokenStr, publicKey)
+			if err != nil {
 				http.Error(w, "Unauthorized: Invalid or expired token", http.StatusUnauthorized)
 				return
 			}
@@ -136,4 +123,27 @@ func InjectPathIDContext(next http.HandlerFunc) http.HandlerFunc {
 		ctx := context.WithValue(r.Context(), userIDKey, userID)
 		next(w, r.WithContext(ctx))
 	}
+}
+
+// ValidateToken parses and verifies an RSA-signed JWT string, returning the parsed claims
+func ValidateToken(tokenStr string, publicKey *rsa.PublicKey) (*JWTClaims, error) {
+	var claims JWTClaims
+	//third argument is a function that returns the key to be used
+	//if the token has the correct signing method, returns the (public key, nil), else returns (nil, error)
+	//that key is then used by ParseWithClaims to validate the payload
+	token, err := jwt.ParseWithClaims(tokenStr, &claims, func(token *jwt.Token) (any, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return publicKey, nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+	if !token.Valid {
+		return nil, fmt.Errorf("token is invalid or expired")
+	}
+
+	return &claims, nil
 }
