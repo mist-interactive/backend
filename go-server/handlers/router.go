@@ -108,10 +108,12 @@ func getAPIKey() (string, error) {
 	keyBytes, err := os.ReadFile(keyPath)
 	if err != nil {
 		return "", fmt.Errorf("Critical: Failed to read API key file at %s: %v", keyPath, err)
-	} else if len(keyBytes) != 65 {
-		return "", fmt.Errorf("Critical: Unexpected length of key : %d, expected 65", len(keyBytes))
 	}
-	return string(keyBytes), nil
+	key := strings.TrimSpace(string(keyBytes))
+	if len(key) < 32 {
+		return "", fmt.Errorf("Critical: Unexpected length of key : %d, expected >=32", len(key))
+	}
+	return key, nil
 }
 
 func GetPrivateKey() (*rsa.PrivateKey, error) {

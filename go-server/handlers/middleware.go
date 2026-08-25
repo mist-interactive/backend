@@ -107,6 +107,7 @@ func APIGuard(referenceKey string) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			key := ExtractAPIKey(r)
 			if key == "" || subtle.ConstantTimeCompare([]byte(key), []byte(referenceKey)) != 1 {
+				log.Printf("API key '%s' failed comparison to '%s'\n", key, referenceKey)
 				http.Error(w, "Unauthorized", http.StatusUnauthorized)
 				return
 			}
@@ -117,10 +118,10 @@ func APIGuard(referenceKey string) func(http.Handler) http.Handler {
 
 func ExtractAPIKey(r *http.Request) string {
 	if key := r.Header.Get("X-API-Key"); key != "" {
-		return key
+		return strings.TrimSpace(key)
 	}
 	auth := r.Header.Get("Authorization")
-	return strings.TrimPrefix(auth, "Bearer ")
+	return strings.TrimSpace(strings.TrimPrefix(auth, "Bearer "))
 }
 
 func InjectPathIDContext(next http.HandlerFunc) http.HandlerFunc {
