@@ -1,6 +1,10 @@
 package realtime
 
-import "github.com/gorilla/websocket"
+import (
+	"log"
+
+	"github.com/gorilla/websocket"
+)
 
 const sendBufferSize = 256
 
@@ -28,4 +32,15 @@ func (c *Client) writePump() {
 
 func (c *Client) readPump() {
 	//TODO: listens to the Conn, and passes any messages the client sends to the Hub
+}
+
+// helper to send messages without blocking
+func (c *Client) TrySend(msg []byte) bool {
+	select {
+	case c.Send <- msg:
+		return true
+	default:
+		log.Printf("[WS] Send buffer full for %s (id: %d), dropped message", c.Username, c.UserID)
+		return false
+	}
 }
