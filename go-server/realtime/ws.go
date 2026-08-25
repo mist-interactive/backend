@@ -1,13 +1,13 @@
 package realtime
 
 import (
-	"crypto/rsa"
-	"dbBackend/handlers"
 	"log"
 	"net/http"
 
 	"github.com/gorilla/websocket"
 )
+
+type TokenValidator func(tokenStr string) (int64, string, error)
 
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
@@ -18,7 +18,7 @@ var upgrader = websocket.Upgrader{
 }
 
 // handles listening to incoming WS requests, upgrades connection to WS, and adds to Hub connection map
-func (h *Hub) ServeWS(pubKey *rsa.PublicKey) http.HandlerFunc {
+func (h *Hub) ServeWS(validator TokenValidator) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Extract & validate JWT from query string
 		tokenStr := r.URL.Query().Get("token")
@@ -26,7 +26,7 @@ func (h *Hub) ServeWS(pubKey *rsa.PublicKey) http.HandlerFunc {
 			http.Error(w, "Missing token query parameter", http.StatusUnauthorized)
 			return
 		}
-		claims, err := handlers.ValidateToken(tokenStr, pubKey)
+		userID, username, err := validator(tokenStr)
 		if err != nil {
 			http.Error(w, "Unauthorized: Invalid or expired token", http.StatusUnauthorized)
 			return
@@ -39,7 +39,7 @@ func (h *Hub) ServeWS(pubKey *rsa.PublicKey) http.HandlerFunc {
 			return
 		}
 
-		client := NewClient(h, conn, claims.UserID, claims.Username)
+		client := NewClient(h, conn, userID, username)
 		h.register <- client
 
 		// start the read and write pumps in background goroutines
