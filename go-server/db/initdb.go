@@ -3,7 +3,6 @@ package db
 import (
 	"context"
 	"database/sql"
-	"dbBackend/models"
 	"fmt"
 	"log"
 	"os"
@@ -14,7 +13,6 @@ import (
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect/pgdialect"
 	"github.com/uptrace/bun/driver/pgdriver"
-	"golang.org/x/crypto/bcrypt"
 )
 
 func InitDB() (*bun.DB, error) {
@@ -61,23 +59,4 @@ func getDBPassword() string {
 		return strings.TrimSpace(string(content))
 	}
 	return ""
-}
-
-func SeedDevUsers(ctx context.Context, db *bun.DB) error {
-	count, err := db.NewSelect().Model((*models.User)(nil)).Count(ctx)
-	if err != nil || count > 0 {
-		return fmt.Errorf("Database not empty or other error (%v)", err)
-	}
-
-	pw := "testing123"
-	hashedPassword, _ := bcrypt.GenerateFromPassword([]byte(pw), bcrypt.DefaultCost)
-
-	devUsers := []models.User{
-		{Username: "nraatika", PWHash: string(hashedPassword), Email: "nraatika@student.hive.fi"},
-		{Username: "mhirvasm", PWHash: string(hashedPassword), Email: "mhirvasm@student.hive.fi"},
-	}
-
-	_, err = db.NewInsert().Model(&devUsers).Exec(ctx)
-	log.Printf("Database seeded with default development users 'nraatika' and 'mhirvasm' (password: %s)\n", pw)
-	return err
 }
