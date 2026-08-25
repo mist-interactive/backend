@@ -155,17 +155,17 @@ func (h *Handler) ProfileDelete(w http.ResponseWriter, r *http.Request) {
 
 	// Execute transactions
 	if _, err := updateUserQuery.Exec(ctx); err != nil {
-		HandleDBError(w, err, fmt.Sprintf("User deletion '%s'", fmt.Sprintf("%d", userID)))
+		HandleDBError(w, err, fmt.Sprintf("User deletion '%d'", userID))
 		return
 	}
 	if _, err := deleteSessionsQuery.Exec(ctx); err != nil {
-		HandleDBError(w, err, fmt.Sprintf("Session deletion for user '%s'", fmt.Sprintf("%d", userID)))
+		HandleDBError(w, err, fmt.Sprintf("Session deletion for user '%d'", userID))
 		return
 	}
 
 	//everything went through, so we commit all actions
 	if err := tx.Commit(); err != nil {
-		HandleDBError(w, err, fmt.Sprintf("Committing profile deletion transaction for user '%s'", fmt.Sprintf("%d", userID)))
+		HandleDBError(w, err, fmt.Sprintf("Committing profile deletion transaction for user '%d'", userID))
 		return
 	}
 
