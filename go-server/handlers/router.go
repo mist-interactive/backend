@@ -86,6 +86,8 @@ func RegisterRoutes(mux *http.ServeMux, db *bun.DB) {
 	protected.HandleFunc("PATCH /friends/{id}", h.FriendRequestAnswer)
 	protected.HandleFunc("DELETE /friends/{id}", h.FriendDelete)
 
+	protected.HandleFunc("GET /messages/{friend_name}", h.MessagesGetHistory)
+
 	// Internal routes protected by APIGuard
 	apiKey, err := getAPIKey()
 	if err != nil {
@@ -98,6 +100,7 @@ func RegisterRoutes(mux *http.ServeMux, db *bun.DB) {
 
 	// WS service internal endpoints
 	internal.HandleFunc("GET /friends/{id}", InjectPathIDContext(h.FriendsListGet))
+	internal.HandleFunc("POST /messages", h.MessageCreate)
 }
 
 func getAPIKey() (string, error) {
