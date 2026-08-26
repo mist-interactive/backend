@@ -29,6 +29,7 @@ Docker is used to run separate services in isolated containers and networks, con
   - To handle graceful use of `.env`-files we use the **`godotenv`** package [\[GitHub\]](https://go-playground/validator/v10)
   - To help with automated testing we use the **`testify`** package [\[GitHub\]](https://github.com/stretchr/testify)
   - To handle JWT creation and testing, we use a **`jwt`** package [\[GitHub\]](https://github.com/golang-jwt/jwt/v5)
+  - For real-time WebSocket communication we use **`gorilla/websocket`** [\[GitHub\]](https://github.com/gorilla/websocket)
 
 ##### Internal packages
 
@@ -38,6 +39,7 @@ To help keep the server maintainable, code is internally divided into a few pack
 - `db` handles setting up the database connection, and running any needed migrations (setting up tables in the database, etc)
 - `models` defines the translation of structs in Go to database tables in Postgres (you pass a struct defined in `models` as an argument to the Bun DB connection, and Bun uses that model to correctly translate that to SQL queries that get sent to the database)
 - `handlers` package define handlers for each endpoint we're serving
+- `realtime` package defines the WebSocket Hub, connection pumps, and online presence tracking
 - `internal/testutil` package contains helpers to testing functions
 - `handlers_test` package contains tests to validate that the handlers are working correctly, including some integration tests with the DB
 - `models_test` package contains tests to validate the models integrate correctly with the DB tables
@@ -51,7 +53,10 @@ erDiagram
         varchar username UK "NOT NULL"
         varchar email UK "NOT NULL"
         varchar password_hash
+        varchar bio
+        varchar avatar_url
         timestamp created_at
+        timestamp updated_at
     }
     sessions {
       bigserial id PK "SERIAL, NOT_NULL"
@@ -82,6 +87,16 @@ erDiagram
     }
     users ||--o{ friendships : "as user_id"
     users ||--o{ friendships : "as friend_id"
+    messages {
+      bigserial id PK "SERIAL, NOT NULL"
+      bigint sender_id FK "FK -> users.id"
+      bigint recipient_id FK "FK -> users.id"
+      varchar content "VARCHAR(2000), NOT NULL"
+      boolean is_read "DEFAULT FALSE"
+      timestamp created_at
+    }
+    users ||--o{ messages : "as sender"
+    users ||--o{ messages : "as recipient"
 ```
 
 ##### TODO:
@@ -107,7 +122,7 @@ which should result in:
 
 - containers `database`, `caddy-test` and `go-server` launching
 - the backend establishing a connection to the DB
-- the backend creating the `users`, `sessions`, `matches` and `friendships` tables in the DB, as specified in `backend/db/migrations/`
+- the backend creating the `users`, `sessions`, `matches`, `friendships` and `messages` tables in the DB, as specified in `backend/db/migrations/`
 - the backend registering handlers for endpoints
   - `/api/register`
   - `/api/login`
@@ -116,8 +131,13 @@ which should result in:
   - `/api/protected/profile/{username}`
   - `/api/protected/friends`
   - `/api/protected/friends/{id}`
+  - `/api/protected/messages/{friend_name}`
+  - `/api/protected/messages/{friend_name}/read`
+  - `/api/ws`
   - `/api/internal/matches`
   - `/api/internal/matches/{id}`
+  - `/api/internal/messages`
+  - `/api/internal/friends/{id}`
 - the reverse proxy `caddy-test` exposing ports 8000 (HTTP) and 8443 (HTTPS), while backend and databse don't expose any ports to the host network
 
 Functionality can be tested using Postman.
@@ -223,6 +243,24 @@ This means that the "`result`" must be one of `player1_win`, `player2_win`, `dra
 
 To perform an update, we first filter the `matches` table to only include entries with the `id` specified in the request address, and only ones where status is `in_progress`. This means a match result can only be updated once, while trying to update an id that doesn't exist in the table or that doesn't have status `in_progress`, results in an error `http.StatusConflict` (409) being returned.
 
+##### `POST /api/internal/messages`
+
+Used internally by the WebSocket service to persist chat messages. Expected request body:
+
+```json
+{
+  "sender_id": 1,
+  "recipient_id": 2,
+  "content": "Hey! Up for a game?"
+}
+```
+
+Returns `201 Created` with the created `Message` object.
+
+##### `GET /api/internal/friends/{id}`
+
+Used internally by the WebSocket service to fetch the list of relationships for a specific user ID.
+
 #### JWT protected routes: `/api/protected/*`
 
 These routes are protected by a JWT checking middleware, which will extract the userid from the token after validating the signature and expiration status. That id is passed on to the handlers in the request context.
@@ -321,6 +359,78 @@ Allowed `status` values: `accepted`, `blocked`.
 ##### `DELETE /api/protected/friends/{id}`
 
 Declines a pending friend request, cancels an outgoing request, or removes an existing friend. Returns `204 No Content`.
+
+##### `GET /api/protected/messages/{friend_name}`
+
+Retrieves the chat history (last 100 messages) between the authenticated user and a specific friend in chronological order:
+
+```json
+[
+  {
+    "id": 1,
+    "sender_id": 1,
+    "recipient_id": 2,
+    "content": "Hey! Want to play a match?",
+    "is_read": true,
+    "created_at": "2026-08-25T14:50:00Z"
+  }
+]
+```
+
+##### `PATCH /api/protected/messages/{friend_name}/read`
+
+Marks incoming messages from a specific friend as read up to a specified message ID:
+
+```json
+{
+  "read_up_to": 105
+}
+```
+
+Returns `204 No Content`.
+
+#### Real-time WebSocket: `/api/ws`
+
+The server provides a full-duplex WebSocket endpoint for online presence tracking and real-time chat.
+
+##### Connection Handshake
+
+* **URL:** `wss://localhost:8443/api/ws?token=<jwt_token>`
+* **Authentication:** Passes the JWT token in the `token` query parameter. Validated using the RSA public key.
+
+##### Protocol Format
+
+All messages sent over the WebSocket use a standard JSON envelope:
+
+```json
+{
+  "type": "<event_type>",
+  "payload": { ... }
+}
+```
+
+##### Server-to-Client Events
+
+* **`initial_presence`**: Sent immediately upon connecting with a list of currently online friends:
+  ```json
+  {
+    "type": "initial_presence",
+    "payload": {
+      "online_users": ["mhirvasm", "jpelline"]
+    }
+  }
+  ```
+
+* **`presence_update`**: Broadcast to online friends when a user connects (`online_status: true`) or disconnects (`online_status: false`):
+  ```json
+  {
+    "type": "presence_update",
+    "payload": {
+      "username": "mhirvasm",
+      "online_status": true
+    }
+  }
+  ```
 
 ### Testing
 
