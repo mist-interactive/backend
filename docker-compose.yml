@@ -12,7 +12,7 @@ services:
     networks:
       - db_network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      test: ["CMD-SHELL", "pg_isready -U $$DB_USER -d $$DB_NAME"]
       interval: 3s
       timeout: 3s
       retries: 5
@@ -39,6 +39,12 @@ services:
     depends_on:
       database:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/api/health || exit 1"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+      start_period: 3s
 
   go-pprof-proxy:
     image: alpine/socat
