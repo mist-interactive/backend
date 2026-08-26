@@ -87,6 +87,12 @@ openssl genpkey -algorithm RSA -out jwt_private.pem -pkeyopt rsa_keygen_bits:204
 openssl rsa -pubout -in jwt_private.pem -out jwt_public.pem
 ```
 
+You also need to generate a valid internal API key, 32 hexes represent enough randomness:
+
+```
+openssl rand -hex 32 > secrets/gameserver_api_key.txt
+```
+
 fill out `.env.example` into `.env`. You can then launch the backend and database containers with the command
 
 ```
