@@ -124,6 +124,7 @@ func ExtractAPIKey(r *http.Request) string {
 	return strings.TrimSpace(strings.TrimPrefix(auth, "Bearer "))
 }
 
+// For internal paths, inject the ID into the context, so handlers can be reused
 func InjectPathIDContext(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		idStr := r.PathValue("id")
