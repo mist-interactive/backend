@@ -68,7 +68,10 @@ func RegisterRoutes(mux *http.ServeMux, db *bun.DB) {
 	h := NewHandler(db, rsaKey, pubKey)
 	mux.HandleFunc("POST /api/login", h.CheckPassword)
 	mux.HandleFunc("POST /api/register", h.TryRegister)
-
+	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"status":"healthy"}`))
+	})
 	//requires session token
 	authGuard := AuthRequired(db)
 	mux.Handle("POST /api/renew", authGuard(http.HandlerFunc(h.IssueToken)))
