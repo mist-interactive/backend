@@ -46,13 +46,15 @@ type Handler struct {
 	DB         *bun.DB
 	PrivateKey *rsa.PrivateKey
 	PublicKey  *rsa.PublicKey
+	APIKey     string
 }
 
-func NewHandler(db *bun.DB, privKey *rsa.PrivateKey, pubKey *rsa.PublicKey) *Handler {
+func NewHandler(db *bun.DB, privKey *rsa.PrivateKey, pubKey *rsa.PublicKey, apiKey string) *Handler {
 	return &Handler{
 		DB:         db,
 		PrivateKey: privKey,
 		PublicKey:  pubKey,
+		APIKey:     apiKey,
 	}
 }
 
@@ -65,7 +67,11 @@ func RegisterRoutes(mux *http.ServeMux, db *bun.DB) {
 	if err != nil {
 		log.Fatalf("Failed to load JWT public key: %v", err)
 	}
-	h := NewHandler(db, rsaKey, pubKey)
+	apiKey, err := getAPIKey()
+	if err != nil {
+		log.Fatalf("%v", err)
+	}
+	h := NewHandler(db, rsaKey, pubKey, apiKey)
 	mux.HandleFunc("POST /api/login", h.CheckPassword)
 	mux.HandleFunc("POST /api/register", h.TryRegister)
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
@@ -73,12 +79,10 @@ func RegisterRoutes(mux *http.ServeMux, db *bun.DB) {
 		w.Write([]byte(`{"status":"healthy"}`))
 	})
 	//requires session token
-	authGuard := AuthRequired(db)
-	mux.Handle("POST /api/renew", authGuard(http.HandlerFunc(h.IssueToken)))
+	mux.Handle("POST /api/renew", h.SessionGuard(http.HandlerFunc(h.IssueToken)))
 
 	// all /api/protected/* routes require a valid JWT
-	jwtGuard := JWTGuard(pubKey)
-	protected := NewGroup(mux, "/api/protected", jwtGuard)
+	protected := NewGroup(mux, "/api/protected", h.JWTGuard)
 	protected.HandleFunc("GET /profile", h.ProfileGet)
 	protected.HandleFunc("PATCH /profile", h.ProfilePatch)
 	protected.HandleFunc("GET /profile/{username}", h.ProfileGetByUsername)
@@ -92,12 +96,8 @@ func RegisterRoutes(mux *http.ServeMux, db *bun.DB) {
 	protected.HandleFunc("GET /messages/{friend_name}", h.MessagesGetHistory)
 
 	// Internal routes protected by APIGuard
-	apiKey, err := getAPIKey()
-	if err != nil {
-		log.Fatalf("%v", err)
-	}
-	apiGuard := APIGuard(apiKey)
-	internal := NewGroup(mux, "/api/internal", apiGuard)
+
+	internal := NewGroup(mux, "/api/internal", h.APIGuard)
 
 	internal.HandleFunc("POST /matches", h.MatchCreate)
 
