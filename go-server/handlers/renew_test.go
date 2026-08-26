@@ -37,15 +37,14 @@ func TestToken_Integration(t *testing.T) {
 		t.Fatalf("failed to read private key: %v", err)
 	}
 
-	tokenHandler := handlers.NewHandler(nil, privateKey, nil)
+	tokenHandler := handlers.NewHandler(testDB, privateKey, nil, "")
 	req := httptest.NewRequest(http.MethodPost, "/api/renew", nil)
 	req.AddCookie(&http.Cookie{
 		Name:  "session_id",
 		Value: sessionToken,
 	})
 	rec := httptest.NewRecorder()
-	authGuard := handlers.AuthRequired(testDB)
-	protectedPipeline := authGuard(http.HandlerFunc(tokenHandler.IssueToken))
+	protectedPipeline := tokenHandler.SessionGuard(http.HandlerFunc(tokenHandler.IssueToken))
 	protectedPipeline.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected status 200 OK, got %d. Body: %s", rec.Code, rec.Body.String())

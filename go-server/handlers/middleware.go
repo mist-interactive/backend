@@ -12,7 +12,6 @@ import (
 	"strings"
 
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/uptrace/bun"
 )
 
 type contextKey string
@@ -20,31 +19,27 @@ type contextKey string
 const userContextKey contextKey = "user"
 const userIDKey contextKey = "user_id"
 
-func AuthRequired(db *bun.DB) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			cookie, err := r.Cookie("session_id")
-			if err != nil {
-				http.Error(w, "Unauthorized", http.StatusUnauthorized)
-				return
-			}
-
-			session := new(models.Session)
-			err = db.NewSelect().
-				Model(session).
-				Relation("User").
-				Where("session_token = ?", cookie.Value).
-				Scan(r.Context())
-
-			if err != nil {
-				http.Error(w, "Unauthorized", http.StatusUnauthorized)
-				return
-			}
-
-			ctx := context.WithValue(r.Context(), userContextKey, session.User)
-			next.ServeHTTP(w, r.WithContext(ctx))
-		})
-	}
+// Middleware for confirming a session token exists in DB. TODO: check expiration
+func (h *Handler) SessionGuard(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cookie, err := r.Cookie("session_id")
+		if err != nil {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		session := new(models.Session)
+		err = h.DB.NewSelect().
+			Model(session).
+			Relation("User").
+			Where("session_token = ?", cookie.Value).
+			Scan(r.Context())
+		if err != nil {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		ctx := context.WithValue(r.Context(), userContextKey, session.User)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
 }
 
 func UserFromContext(ctx context.Context) (*models.User, bool) {
@@ -52,23 +47,22 @@ func UserFromContext(ctx context.Context) (*models.User, bool) {
 	return user, ok
 }
 
-func JWTGuard(publicKey *rsa.PublicKey) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			tokenStr := extractBearerToken(r)
-			if tokenStr == "" {
-				http.Error(w, "Unauthorized: Missing Bearer token", http.StatusUnauthorized)
-				return
-			}
-			claims, err := ValidateToken(tokenStr, publicKey)
-			if err != nil {
-				http.Error(w, "Unauthorized: Invalid or expired token", http.StatusUnauthorized)
-				return
-			}
-			ctx := context.WithValue(r.Context(), userIDKey, claims.UserID) //add the user ID to context
-			next.ServeHTTP(w, r.WithContext(ctx))
-		})
-	}
+// Middleware for authenticating a JWT token
+func (h *Handler) JWTGuard(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		tokenStr := extractBearerToken(r)
+		if tokenStr == "" {
+			http.Error(w, "Unauthorized: Missing Bearer token", http.StatusUnauthorized)
+			return
+		}
+		claims, err := ValidateToken(tokenStr, h.PublicKey)
+		if err != nil {
+			http.Error(w, "Unauthorized: Invalid or expired token", http.StatusUnauthorized)
+			return
+		}
+		ctx := context.WithValue(r.Context(), userIDKey, claims.UserID) //add the user ID to context
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
 }
 
 // Helper to extract Bearer token from Authorization header
@@ -90,18 +84,16 @@ func UserIDFromContext(ctx context.Context) (int64, bool) {
 	return id, ok
 }
 
-func APIGuard(referenceKey string) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			key := ExtractAPIKey(r)
-			if key == "" || subtle.ConstantTimeCompare([]byte(key), []byte(referenceKey)) != 1 {
-				log.Printf("API key '%s' failed comparison to '%s'\n", key, referenceKey)
-				http.Error(w, "Unauthorized", http.StatusUnauthorized)
-				return
-			}
-			next.ServeHTTP(w, r)
-		})
-	}
+func (h *Handler) APIGuard(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		key := ExtractAPIKey(r)
+		if key == "" || subtle.ConstantTimeCompare([]byte(key), []byte(h.APIKey)) != 1 {
+			log.Printf("API key '%s' failed comparison to '%s'\n", key, h.APIKey)
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func ExtractAPIKey(r *http.Request) string {
