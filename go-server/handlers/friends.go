@@ -30,6 +30,7 @@ type FriendshipItemResponse struct {
 	AvatarURL    *string                 `json:"avatar_url"`
 	Status       models.FriendshipStatus `json:"status"`
 	IsIncoming   bool                    `json:"is_incoming"`
+	UnreadCount  int64                   `json:"unread_count"`
 }
 
 func (h *Handler) FriendRequestPost(w http.ResponseWriter, r *http.Request) {
@@ -93,8 +94,9 @@ func (h *Handler) FriendsListGet(w http.ResponseWriter, r *http.Request) {
 		ColumnExpr("u.username AS username").
 		ColumnExpr("u.avatar_url AS avatar_url").
 		ColumnExpr("f.status AS status").
-		ColumnExpr("(f.friend_id = ?) AS is_incoming", userID).
-		Join("JOIN users AS u ON (f.user_id = ? AND f.friend_id = u.id) OR (f.friend_id = ? AND f.user_id = u.id)", userID, userID). //current user is either user or friend in the records. this checks both
+		ColumnExpr("(f.friend_id = ?) AS is_incoming", userID).                                                                                           //check if id'd user is the recipient of the request, store result in is_incoming
+		ColumnExpr("(SELECT COUNT(*) FROM messages AS m WHERE m.sender_id = u.id AND m.recipient_id = ? AND m.is_read = FALSE) AS unread_count", userID). //count how many messages from this friend to id'd user are unread, store in unread_count
+		Join("JOIN users AS u ON (f.user_id = ? AND f.friend_id = u.id) OR (f.friend_id = ? AND f.user_id = u.id)", userID, userID).                      //current user is either user or friend in the records. this checks both
 		Where("f.user_id = ? OR f.friend_id = ?", userID, userID).
 		Where("f.status != ? OR f.user_id = ?", models.StatusBlocked, userID). // Hide blocks unless current user is the blocker
 		Scan(r.Context(), &friends)
