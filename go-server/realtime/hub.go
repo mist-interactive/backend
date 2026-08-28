@@ -24,7 +24,7 @@ func NewHub(store DataStore) *Hub {
 
 // main loop of the service: notice when clients come and go
 func (h *Hub) Run() {
-	for {
+	for { //this is an event listener, it selects the first active channel. if no channels are active, Go puts this thread to sleep until one activates
 		select {
 		case client := <-h.register: //h.register has an element, catch it as `client`
 			h.handleRegister(client)
@@ -35,6 +35,9 @@ func (h *Hub) Run() {
 }
 
 func (h *Hub) handleRegister(client *Client) {
+	if oldClient, alreadyConnected := h.clients[client.UserID]; alreadyConnected {
+		oldClient.Conn.Close()
+	}
 	h.clients[client.UserID] = client
 	friendIDs, err := h.store.GetFriendsList(context.Background(), client.UserID)
 	if err != nil {
