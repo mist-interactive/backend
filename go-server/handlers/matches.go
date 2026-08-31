@@ -3,7 +3,10 @@ package handlers
 import (
 	"dbBackend/models"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"strconv"
+	"time"
 )
 
 type MatchCreateInput struct {
@@ -40,4 +43,45 @@ func (h *Handler) MatchCreate(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]any{
 		"id": match.ID,
 	})
+}
+
+type MatchPatchInput struct {
+	Result string `json:"result" validate:"required,oneof=player1_win player2_win draw aborted"`
+	Status string `json:"status" validate:"required,oneof=finished abandoned"`
+}
+
+// PATCH /api/internal/matches/{id}
+func (h *Handler) MatchPatch(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	matchID, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid match ID", http.StatusBadRequest)
+		return
+	}
+	input, err := DecodeAndValidate[MatchPatchInput](r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	now := time.Now()
+	res, err := h.DB.NewUpdate().
+		Model((*models.MatchRecord)(nil)).
+		Where("id = ?", matchID).
+		Where("status = ?", models.StatusInProgress).
+		Set("status = ?", input.Status).
+		Set("result = ?", input.Result).
+		Set("finished_at = ?", now).
+		Exec(r.Context())
+
+	if err != nil {
+		HandleDBError(w, err, "Updating match history")
+		return
+	}
+	rows, _ := res.RowsAffected()
+	if rows == 0 {
+		http.Error(w, fmt.Sprintf("No match in progress with ID %d was found", matchID), http.StatusConflict)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
