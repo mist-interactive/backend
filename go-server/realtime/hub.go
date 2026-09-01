@@ -2,7 +2,6 @@ package realtime
 
 import (
 	"context"
-	"encoding/json"
 	"log"
 )
 
@@ -10,6 +9,7 @@ type Hub struct {
 	clients    map[int64]*Client //map of Clients connected to the Hub. key is the userID
 	register   chan *Client      //way to add Clients to the Hub
 	unregister chan *Client      //way to remove Clients from the Hub
+	unicast    chan UserMessage  // Universal channel to deliver data to any specific user
 	store      DataStore         //DB connection. currently a direct DB connection, can be replaced with a caller of /internal/* APIs later
 }
 
@@ -19,10 +19,11 @@ func NewHub(store DataStore) *Hub {
 		clients:    make(map[int64]*Client),
 		register:   make(chan *Client),
 		unregister: make(chan *Client),
+		unicast:    make(chan UserMessage),
 		store:      store}
 }
 
-// main loop of the service: notice when clients come and go
+// main loop of the service: notice when clients come and go, and when messages need to be sent
 func (h *Hub) Run() {
 	for { //this is an event listener, it selects the first active channel. if no channels are active, Go puts this thread to sleep until one activates
 		select {
@@ -30,6 +31,10 @@ func (h *Hub) Run() {
 			h.handleRegister(client)
 		case client := <-h.unregister: //h.unregister has an element, catch it as `client`
 			h.handleUnregister(client)
+		case msg := <-h.unicast: //h.unicast has an element, catch it as msg, and send it to the receiver if we have them on a socket
+			if recipient, isOnline := h.clients[msg.UserID]; isOnline {
+				recipient.TrySend(msg.Data)
+			}
 		}
 	}
 }
@@ -45,7 +50,7 @@ func (h *Hub) handleRegister(client *Client) {
 		return
 	}
 	onlineFriendUsernames := make([]string, 0)
-	presenceMessage, err := json.Marshal(WebsocketMessage{TypePresenceUpdate, PresenceUpdatePayload{client.Username, true}})
+	presenceMessage, err := EncodeMessage(TypePresenceUpdate, PresenceUpdatePayload{client.Username, true})
 	if err != nil {
 		log.Println("problem marshalling presence update json")
 		return
@@ -56,7 +61,7 @@ func (h *Hub) handleRegister(client *Client) {
 			friend.TrySend(presenceMessage)
 		}
 	}
-	initialMessage, err := json.Marshal(WebsocketMessage{TypeInitialPresence, InitialPresencePayload{onlineFriendUsernames}})
+	initialMessage, err := EncodeMessage(TypeInitialPresence, InitialPresencePayload{onlineFriendUsernames})
 	if err != nil {
 		log.Println("problem marshalling initial presence json")
 		return
@@ -76,7 +81,7 @@ func (h *Hub) handleUnregister(client *Client) {
 		}
 
 		// Marshal offline status message
-		offlineMessage, err := json.Marshal(WebsocketMessage{TypePresenceUpdate, PresenceUpdatePayload{client.Username, false}})
+		offlineMessage, err := EncodeMessage(TypePresenceUpdate, PresenceUpdatePayload{client.Username, false})
 		if err != nil {
 			return
 		}
@@ -88,4 +93,8 @@ func (h *Hub) handleUnregister(client *Client) {
 			}
 		}
 	}
+}
+
+func (h *Hub) SendToUser(userID int64, data []byte) {
+	h.unicast <- UserMessage{UserID: userID, Data: data}
 }

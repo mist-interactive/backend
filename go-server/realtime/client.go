@@ -1,6 +1,7 @@
 package realtime
 
 import (
+	"encoding/json"
 	"log"
 
 	"github.com/gorilla/websocket"
@@ -42,17 +43,39 @@ func (c *Client) writePump() {
 
 // reads incoming data from the WebSocket until the user disconnects
 func (c *Client) readPump() {
-	defer func() {
+	defer func() { //this runs if something goes wrong
 		c.Hub.unregister <- c
 		c.Conn.Close()
 	}()
 
 	for { // ReadMessage blocks until data arrives or the socket closes (disconnect)
-		_, _, err := c.Conn.ReadMessage() //TODO: catch the actual message, and react
+		messageType, p, err := c.Conn.ReadMessage()
 		if err != nil {
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
+				log.Printf("[WS] Unexpected disconnect from %s: %v", c.Username, err)
+			} else {
+				log.Printf("[WS] %s disconnected cleanly", c.Username)
+			}
 			break // Disconnected: unregister via the deferred function
 		}
-		// TODO: parse incoming chat messages here
+		if messageType != websocket.TextMessage {
+			continue //ignore non-text messages
+		}
+		var incoming WebsocketMessage
+		err = json.Unmarshal(p, &incoming)
+		if err != nil {
+			log.Printf("[WS] Malformed JSON from %s: %v", c.Username, err)
+			continue //not a fatal error
+		}
+		switch incoming.Type {
+		case TypeDMSend:
+			payload, err := UnmarshalAndValidate[DMSendPayload](incoming.Payload)
+			if err != nil {
+				log.Printf("[WS] Invalid message from %s: %v", c.Username, err)
+				continue
+			}
+			err = c.HandleSendMsg(payload)
+		}
 	}
 }
 
@@ -61,7 +84,7 @@ func (c *Client) TrySend(msg []byte) bool {
 	select {
 	case c.Send <- msg:
 		return true
-	default:
+	default: //we only arrive here if the defined case didn't work
 		log.Printf("[WS] Send buffer full for %s (id: %d), dropped message", c.Username, c.UserID)
 		return false
 	}
