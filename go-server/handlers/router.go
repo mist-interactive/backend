@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"crypto/rsa"
+	"dbBackend/realtime"
 	"fmt"
 	"log"
 	"net/http"
@@ -104,6 +105,14 @@ func RegisterRoutes(mux *http.ServeMux, db *bun.DB) {
 	// WS service internal endpoints
 	internal.HandleFunc("GET /friends/{id}", InjectPathIDContext(h.FriendsListGet))
 	internal.HandleFunc("POST /messages", h.MessageCreate)
+
+	//WS microservice
+	store := realtime.NewBunDataStore(db)
+	hub := realtime.NewHub(store)
+	go hub.Run()
+
+	// Register the WebSocket endpoint (validates with the given function)
+	mux.HandleFunc("GET /api/ws", hub.ServeWS(h.tokenValidator))
 }
 
 func getAPIKey() (string, error) {
@@ -115,6 +124,7 @@ func getAPIKey() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("Critical: Failed to read API key file at %s: %v", keyPath, err)
 	}
+
 	key := strings.TrimSpace(string(keyBytes))
 	if len(key) < 32 {
 		return "", fmt.Errorf("Critical: Unexpected length of key : %d, expected >=32", len(key))
@@ -146,4 +156,12 @@ func GetPublicKey() (*rsa.PublicKey, error) {
 		return nil, fmt.Errorf("failed to cryptographically compile RSA public key: %v", err)
 	}
 	return publicKey, nil
+}
+
+func (h *Handler) tokenValidator(tokenStr string) (int64, string, error) {
+	claims, err := ValidateToken(tokenStr, h.PublicKey)
+	if err != nil {
+		return 0, "", err
+	}
+	return claims.UserID, claims.Username, nil
 }

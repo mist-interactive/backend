@@ -10,7 +10,7 @@ type Hub struct {
 	clients    map[int64]*Client //map of Clients connected to the Hub. key is the userID
 	register   chan *Client      //way to add Clients to the Hub
 	unregister chan *Client      //way to remove Clients from the Hub
-	store      DataStore         //DB connection
+	store      DataStore         //DB connection. currently a direct DB connection, can be replaced with a caller of /internal/* APIs later
 }
 
 // create a new Hub using the specified DB connection
