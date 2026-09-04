@@ -8,6 +8,7 @@ import (
 	"dbBackend/models"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -24,8 +25,11 @@ func TestMatchCreate_Integration(t *testing.T) {
 	user2, cleanup2 := testutil.MakeTestUser(t, testDB)
 	testutil.RegisterUser(t, user2, testDB)
 	t.Cleanup(cleanup2)
-
-	matchHandler := &handlers.MatchHandler{DB: testDB}
+	apiKey, err := handlers.GetAPIKey()
+	if err != nil {
+		log.Fatalf("%v", err)
+	}
+	matchHandler := handlers.NewHandler(testDB, nil, nil, apiKey)
 
 	t.Run("Successfully creates match", func(t *testing.T) {
 		var createdMatchID int64
@@ -39,7 +43,7 @@ func TestMatchCreate_Integration(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 		rec := httptest.NewRecorder()
 
-		matchHandler.MatchesCreate(rec, req)
+		matchHandler.MatchCreate(rec, req)
 
 		if rec.Code != http.StatusCreated {
 			t.Fatalf("expected status 201 Created, got %d. Body: %s", rec.Code, rec.Body.String())
@@ -82,7 +86,7 @@ func TestMatchCreate_Integration(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 		rec := httptest.NewRecorder()
 
-		matchHandler.MatchesCreate(rec, req)
+		matchHandler.MatchCreate(rec, req)
 
 		if rec.Code != http.StatusConflict {
 			t.Fatalf("expected status 409 Conflict, got %d. Body: %s", rec.Code, rec.Body.String())
@@ -104,10 +108,14 @@ func TestMatchPatch_Integration(t *testing.T) {
 	match, matchCleanup := testutil.MakeTestMatch(t, testDB, user1.ID, user2.ID)
 	t.Cleanup(matchCleanup)
 
-	matchHandler := &handlers.MatchHandler{DB: testDB}
+	apiKey, err := handlers.GetAPIKey()
+	if err != nil {
+		log.Fatalf("%v", err)
+	}
+	matchHandler := handlers.NewHandler(testDB, nil, nil, apiKey)
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("PATCH /api/matches/{id}", matchHandler.MatchesPatch)
+	mux.HandleFunc("PATCH /api/matches/{id}", matchHandler.MatchPatch)
 
 	t.Run("Successfully updates match state", func(t *testing.T) {
 		payload := map[string]string{

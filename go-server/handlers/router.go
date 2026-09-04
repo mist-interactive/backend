@@ -68,7 +68,7 @@ func RegisterRoutes(mux *http.ServeMux, db *bun.DB) {
 	if err != nil {
 		log.Fatalf("Failed to load JWT public key: %v", err)
 	}
-	apiKey, err := getAPIKey()
+	apiKey, err := GetAPIKey()
 	if err != nil {
 		log.Fatalf("%v", err)
 	}
@@ -116,7 +116,7 @@ func RegisterRoutes(mux *http.ServeMux, db *bun.DB) {
 	mux.HandleFunc("GET /api/ws", hub.ServeWS(h.tokenValidator))
 }
 
-func getAPIKey() (string, error) {
+func GetAPIKey() (string, error) {
 	keyPath := os.Getenv("GAMESERVER_API_KEY_PATH")
 	if keyPath == "" {
 		return "", fmt.Errorf("Critical: GAMESERVER_API_KEY_PATH is not set")
