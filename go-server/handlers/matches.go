@@ -6,6 +6,10 @@ import (
 	"net/http"
 )
 
+// MatchCreate handles POST /api/internal/matches.
+// It is called by the WebSocket service when a match challenge is accepted.
+// It resolves player usernames to database primary keys and inserts a new match
+// with status 'in_progress', returning the newly generated match ID.
 func (h *Handler) MatchCreate(w http.ResponseWriter, r *http.Request) {
 	input, err := DecodeAndValidate[models.MatchCreateInput](r)
 	if err != nil {
@@ -17,9 +21,20 @@ func (h *Handler) MatchCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	p1, err := h.getUserByUsername(r.Context(), input.Player1)
+	if err != nil {
+		http.Error(w, "Player 1 not found", http.StatusNotFound)
+		return
+	}
+	p2, err := h.getUserByUsername(r.Context(), input.Player2)
+	if err != nil {
+		http.Error(w, "Player 2 not found", http.StatusNotFound)
+		return
+	}
+
 	match := &models.MatchRecord{
-		Player1: input.Player1,
-		Player2: input.Player2,
+		Player1: p1.ID,
+		Player2: p2.ID,
 		Status:  models.StatusInProgress,
 	}
 	err = h.DB.NewInsert().

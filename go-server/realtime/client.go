@@ -1,6 +1,8 @@
 package realtime
 
 import (
+	"encoding/json"
+	"fmt"
 	"log"
 
 	"github.com/gorilla/websocket"
@@ -47,13 +49,48 @@ func (c *Client) readPump() {
 		c.Conn.Close()
 	}()
 
-	for { // ReadMessage blocks until data arrives or the socket closes (disconnect)
-		_, _, err := c.Conn.ReadMessage() //TODO: catch the actual message, and react
+	for {
+		messageType, p, err := c.Conn.ReadMessage()
 		if err != nil {
-			break // Disconnected: unregister via the deferred function
+			break
 		}
-		// TODO: parse incoming chat messages here
+		if messageType != websocket.TextMessage {
+			continue
+		}
+
+		var incoming WebsocketMessage
+		if err := json.Unmarshal(p, &incoming); err != nil {
+			log.Printf("[WS] Malformed JSON from %s: %v", c.Username, err)
+			c.SendError("Malformed message envelope")
+			continue
+		}
+
+		if handler, exists := messageRoutes[incoming.Type]; exists {
+			if err := handler(c, incoming.Payload); err != nil {
+				log.Printf("[WS] Error handling %s from %s: %v", incoming.Type, c.Username, err)
+				c.SendError(err.Error())
+			}
+		} else {
+			log.Printf("[WS] Unknown message type: %s", incoming.Type)
+			c.SendError(fmt.Sprintf("Unknown message type: %s", incoming.Type))
+		}
 	}
+}
+
+// SendError routes a generic error message through the Hub's safe unicast channel.
+func (c *Client) SendError(msg string) {
+	errBytes, err := EncodeMessage(TypeError, ErrorPayload{Message: msg})
+	if err == nil {
+		c.Hub.SendToUser(c.UserID, errBytes)
+	}
+}
+
+// messageRoutes maps incoming WebSocket message types to their corresponding handler functions.
+// Handlers are wrapped with bind[T] to automatically parse and validate the JSON payload.
+var messageRoutes = map[MessageType]WSHandlerFunc{
+	TypeInviteSend:     bind((*Client).HandleMatchInvite),
+	TypeInviteResponse: bind((*Client).HandleMatchInviteResponse),
+	TypeInviteCancel:   bind((*Client).HandleMatchInviteCancel),
 }
 
 // helper to send messages without blocking

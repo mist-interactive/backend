@@ -14,7 +14,51 @@ const (
 	// server->client presence updates
 	TypeInitialPresence MessageType = "initial_presence"
 	TypePresenceUpdate  MessageType = "presence_update"
+
+	// Match invitation protocol
+	TypeInviteSend     MessageType = "match_invite_send"
+	TypeInviteRecv     MessageType = "match_invite_recv"
+	TypeInviteResponse MessageType = "match_invite_response"
+	TypeInviteCancel   MessageType = "match_invite_cancel"
+	TypeMatchStarted   MessageType = "match_started"
+
+	// Generic error notification
+	TypeError          MessageType = "error"
 )
+
+type ErrorPayload struct {
+	Message string `json:"message"`
+}
+
+type MatchInvitePayload struct {
+	Username string `json:"username" validate:"required,min=3,max=50"`
+	Status   string `json:"status,omitempty" validate:"omitempty,oneof=pending accepted declined canceled"`
+}
+
+type MatchSessionPayload struct {
+	MatchID  int64  `json:"match_id"`
+	Opponent string `json:"opponent"`
+}
+
+type inviteKey struct {
+	challenger string
+	target     string
+}
+
+type MatchActionType int
+
+const (
+	ActionInviteSend MatchActionType = iota
+	ActionInviteResponse
+	ActionInviteCancel
+)
+
+type MatchAction struct {
+	Type   MatchActionType
+	Sender *Client
+	Target string
+	Status string
+}
 
 // UserMessage represents an internal instruction to deliver bytes to a specific user
 type UserMessage struct {
@@ -36,6 +80,22 @@ type InitialPresencePayload struct {
 type PresenceUpdatePayload struct {
 	Username     string `json:"username"`
 	OnlineStatus bool   `json:"online_status"`
+}
+
+// WSHandlerFunc is the standard signature for handling an incoming websocket message payload.
+type WSHandlerFunc func(*Client, json.RawMessage) error
+
+// bind bridges a strongly-typed handler func(*Client, T) error to the generic WSHandlerFunc signature.
+// It automatically unmarshals raw JSON into the target struct T and validates struct tags
+// before calling the handler, keeping router definitions declarative and free of repetitive parsing logic.
+func bind[T any](fn func(*Client, T) error) WSHandlerFunc {
+	return func(c *Client, raw json.RawMessage) error {
+		payload, err := UnmarshalAndValidate[T](raw)
+		if err != nil {
+			return err
+		}
+		return fn(c, payload)
+	}
 }
 
 var validate = validator.New()
