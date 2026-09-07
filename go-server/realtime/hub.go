@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"time"
 )
 
 type Hub struct {
@@ -12,7 +13,7 @@ type Hub struct {
 	unregister    chan *Client                    // way to remove Clients from the Hub
 	unicast       chan UserMessage                // Universal channel to deliver data to any specific user
 	presenceSync  chan PresenceSync               // Channel to update a users friends that they came online
-	invites       map[inviteKey]bool              // In-memory pending challenges
+	invites       map[inviteKey]time.Time         // In-memory pending challenges with creation timestamp
 	matchAction   chan MatchAction                // Match invitation events dispatched to the Hub
 	activeMatches map[string]*MatchSessionPayload // username -> active match session
 	store         DataStore                       // DB connection
@@ -26,7 +27,7 @@ func NewHub(store DataStore) *Hub {
 		unregister:    make(chan *Client),
 		unicast:       make(chan UserMessage, 256),
 		presenceSync:  make(chan PresenceSync),
-		invites:       make(map[inviteKey]bool),
+		invites:       make(map[inviteKey]time.Time),
 		matchAction:   make(chan MatchAction),
 		activeMatches: make(map[string]*MatchSessionPayload),
 		store:         store,
@@ -35,6 +36,9 @@ func NewHub(store DataStore) *Hub {
 
 // main loop of the service: notice when clients come and go, and when messages need to be sent
 func (h *Hub) Run() {
+	pruneTicker := time.NewTicker(invitePruneInterval)
+	defer pruneTicker.Stop()
+
 	for {
 		select {
 		case client := <-h.register:
@@ -53,6 +57,8 @@ func (h *Hub) Run() {
 			h.handlePresenceSync(sync.client, sync.friendIDs)
 		case action := <-h.matchAction:
 			h.handleMatchAction(action)
+		case <-pruneTicker.C:
+			h.pruneExpiredInvites()
 		}
 	}
 }
