@@ -8,6 +8,7 @@ import (
 
 type MatchStatus string
 type MatchResult string
+type MatchOutcome string
 
 const (
 	StatusInProgress MatchStatus = "in_progress"
@@ -18,6 +19,11 @@ const (
 	ResultPlayer2Win MatchResult = "player2_win"
 	ResultDraw       MatchResult = "draw"
 	ResultAborted    MatchResult = "aborted"
+
+	OutcomeWin     MatchOutcome = "win"
+	OutcomeLoss    MatchOutcome = "loss"
+	OutcomeDraw    MatchOutcome = "draw"
+	OutcomeAborted MatchOutcome = "aborted"
 )
 
 type MatchRecord struct {
@@ -65,4 +71,18 @@ type MatchFinishedPayload struct {
 	Status       MatchStatus `json:"status"`
 	Result       MatchResult `json:"result"`
 	WinnerID     *int64      `json:"winner_id,omitempty"`
+}
+
+type MatchHistoryResponse struct {
+	ID                int64         `json:"id" bun:"id"`
+	OpponentID        int64         `json:"opponent_id" bun:"opponent_id"`
+	OpponentUsername  string        `json:"opponent" bun:"opponent"`
+	OpponentAvatarURL *string       `json:"opponent_avatar_url" bun:"opponent_avatar_url"`
+	UserScore         *int          `json:"user_score" bun:"user_score"`
+	OpponentScore     *int          `json:"opponent_score" bun:"opponent_score"`
+	Status            MatchStatus   `json:"status" bun:"status"`
+	Result            *MatchResult  `json:"result" bun:"result"`
+	Outcome           *MatchOutcome `json:"outcome" bun:"outcome"`
+	StartedAt         time.Time     `json:"started_at" bun:"started_at"`
+	FinishedAt        *time.Time    `json:"finished_at" bun:"finished_at"`
 }
