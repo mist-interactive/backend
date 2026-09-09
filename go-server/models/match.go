@@ -55,3 +55,14 @@ type ActiveMatchResponse struct {
 	OpponentUsername string    `json:"opponent" bun:"opponent"`
 	StartedAt        time.Time `json:"started_at" bun:"started_at"`
 }
+
+type MatchFinishedPayload struct {
+	MatchID      int64       `json:"match_id"`
+	Player1      int64       `json:"player_one"`
+	Player2      int64       `json:"player_two"`
+	Player1Score int         `json:"player_one_score"`
+	Player2Score int         `json:"player_two_score"`
+	Status       MatchStatus `json:"status"`
+	Result       MatchResult `json:"result"`
+	WinnerID     *int64      `json:"winner_id,omitempty"`
+}

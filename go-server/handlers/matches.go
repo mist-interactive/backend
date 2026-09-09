@@ -175,6 +175,32 @@ func (h *Handler) MatchPatch(w http.ResponseWriter, r *http.Request) {
 		"status", status,
 		"result", result,
 	)
+
+	if h.Notifier != nil {
+		var winnerID *int64
+		switch result {
+		case models.ResultPlayer1Win:
+			winnerID = &match.Player1
+		case models.ResultPlayer2Win:
+			winnerID = &match.Player2
+		}
+
+		payload := models.MatchFinishedPayload{
+			MatchID:      matchID,
+			Player1:      match.Player1,
+			Player2:      match.Player2,
+			Player1Score: p1Score,
+			Player2Score: p2Score,
+			Status:       status,
+			Result:       result,
+			WinnerID:     winnerID,
+		}
+
+		if err := h.Notifier.MatchFinished(payload); err != nil {
+			slog.Warn("could not dispatch match finish notification to realtime hub", "match_id", matchID, "error", err)
+		}
+	}
+
 	w.WriteHeader(http.StatusNoContent)
 }
 

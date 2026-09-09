@@ -232,6 +232,8 @@ func (h *Hub) handleMatchAction(action MatchAction) {
 		h.onMatchStarted(action.Target, action.Opponent, action.MatchID)
 	case ActionActiveMatchSync:
 		h.onActiveMatchSync(action.Sender, action.Response)
+	case ActionMatchFinished:
+		h.onMatchFinished(action.MatchID)
 	}
 }
 
@@ -415,6 +417,16 @@ func (h *Hub) onMatchStarted(p1, p2 string, matchID int64) {
 	)
 }
 
+// onMatchFinished purges finished match sessions from the in-memory activeMatches map.
+func (h *Hub) onMatchFinished(matchID int64) {
+	for username, session := range h.activeMatches {
+		if session.MatchID == matchID {
+			delete(h.activeMatches, username)
+			slog.Info("Cleared active match from memory on match finish", "username", username, "match_id", matchID)
+		}
+	}
+}
+
 // checkActiveMatchDB performs a background database query to check if a reconnecting user
 // has an active match in progress, dispatching the result to the Hub event loop.
 func (h *Hub) checkActiveMatchDB(client *Client) {
@@ -545,4 +557,23 @@ func (h *Hub) NotifyFriendDeleted(targetUserID int64, friendshipID int64) error 
 		return fmt.Errorf("failed to encode friend deleted notification: %w", err)
 	}
 	return h.NotifyUser(targetUserID, data)
+}
+
+// MatchFinished dispatches match_finished real-time notifications to both participants
+// and dispatches ActionMatchFinished to purge the match session from the Hub's in-memory activeMatches map.
+func (h *Hub) MatchFinished(payload models.MatchFinishedPayload) error {
+	data, err := EncodeMessage(TypeMatchFinished, payload)
+	if err != nil {
+		return fmt.Errorf("failed to encode match finished notification: %w", err)
+	}
+
+	_ = h.NotifyUser(payload.Player1, data)
+	_ = h.NotifyUser(payload.Player2, data)
+
+	h.matchAction <- MatchAction{
+		Type:    ActionMatchFinished,
+		MatchID: payload.MatchID,
+	}
+
+	return nil
 }
