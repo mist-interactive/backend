@@ -37,3 +37,5 @@ env $(cat ../.env | grep -v '^#' | xargs) \
 DB_PASSWORD=$(cat ../../secrets/postgres_user_pw.txt) \
 DB_HOST=localhost \
 go test -v ./models
+
+go test -v ./realtime
