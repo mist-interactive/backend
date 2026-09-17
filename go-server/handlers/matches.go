@@ -39,6 +39,21 @@ func (h *Handler) MatchCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	hasActiveMatch, err := h.DB.NewSelect().
+		Model((*models.MatchRecord)(nil)).
+		Where("status = ?", models.StatusInProgress).
+		Where("player_one IN (?, ?) OR player_two IN (?, ?)", p1.ID, p2.ID, p1.ID, p2.ID).
+		Exists(r.Context())
+	if err != nil {
+		HandleDBError(w, err, "Checking active match")
+		return
+	}
+	if hasActiveMatch {
+		slog.Warn("match create rejected: player already in an active match", "player1", input.Player1, "player2", input.Player2)
+		http.Error(w, "One or more players are already in an active match", http.StatusConflict)
+		return
+	}
+
 	match := &models.MatchRecord{
 		Player1: p1.ID,
 		Player2: p2.ID,
