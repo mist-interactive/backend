@@ -4,3 +4,5 @@ values:
     value: 'https://localhost:8443'
   - key: base_ws
     value: 'wss://localhost:8443/api/ws?token='
+  - key: avatar_url
+    value: ''
