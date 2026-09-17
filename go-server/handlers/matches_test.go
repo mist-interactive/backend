@@ -390,3 +390,116 @@ func TestUserActiveMatchGet(t *testing.T) {
 		})
 	}
 }
+
+func TestMatchCreate(t *testing.T) {
+	ctx := context.Background()
+	user1, cleanup1 := testutil.MakeTestUser(t, testDB)
+	t.Cleanup(cleanup1)
+	testutil.RegisterUser(t, user1, testDB)
+
+	user2, cleanup2 := testutil.MakeTestUser(t, testDB)
+	t.Cleanup(cleanup2)
+	testutil.RegisterUser(t, user2, testDB)
+
+	user3, cleanup3 := testutil.MakeTestUser(t, testDB)
+	t.Cleanup(cleanup3)
+	testutil.RegisterUser(t, user3, testDB)
+
+	t.Cleanup(func() {
+		_, _ = testDB.NewDelete().
+			Model((*models.MatchRecord)(nil)).
+			Where("player_one IN (?, ?, ?) OR player_two IN (?, ?, ?)",
+				user1.ID, user2.ID, user3.ID, user1.ID, user2.ID, user3.ID).
+			Exec(ctx)
+	})
+
+	handler := handlers.NewHandler(testDB, nil, nil, "", nil)
+
+	tests := []struct {
+		name           string
+		setup          func(t *testing.T)
+		player1        string
+		player2        string
+		expectedStatus int
+	}{
+		{
+			name:           "Success: Match created between available players",
+			player1:        user1.Username,
+			player2:        user2.Username,
+			expectedStatus: http.StatusCreated,
+		},
+		{
+			name: "Failure: Blocked when a player already has an active match",
+			setup: func(t *testing.T) {
+				match := &models.MatchRecord{
+					Player1: user1.ID,
+					Player2: user3.ID,
+					Status:  models.StatusInProgress,
+				}
+				if _, err := testDB.NewInsert().Model(match).Exec(ctx); err != nil {
+					t.Fatalf("failed to insert active match: %v", err)
+				}
+				t.Cleanup(func() {
+					_, _ = testDB.NewDelete().Model((*models.MatchRecord)(nil)).Where("id = ?", match.ID).Exec(ctx)
+				})
+			},
+			player1:        user1.Username,
+			player2:        user2.Username,
+			expectedStatus: http.StatusConflict,
+		},
+		{
+			name: "Success: Allowed when prior match is finished",
+			setup: func(t *testing.T) {
+				result := models.ResultPlayer1Win
+				finished := &models.MatchRecord{
+					Player1: user1.ID,
+					Player2: user2.ID,
+					Status:  models.StatusFinished,
+					Result:  &result,
+				}
+				if _, err := testDB.NewInsert().Model(finished).Exec(ctx); err != nil {
+					t.Fatalf("failed to insert finished match: %v", err)
+				}
+				t.Cleanup(func() {
+					_, _ = testDB.NewDelete().Model((*models.MatchRecord)(nil)).Where("id = ?", finished.ID).Exec(ctx)
+				})
+			},
+			player1:        user1.Username,
+			player2:        user2.Username,
+			expectedStatus: http.StatusCreated,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.setup != nil {
+				tc.setup(t)
+			}
+			body, _ := json.Marshal(models.MatchCreateInput{
+				Player1: tc.player1,
+				Player2: tc.player2,
+			})
+			req := httptest.NewRequest(http.MethodPost, "/api/internal/matches", bytes.NewBuffer(body))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+
+			handler.MatchCreate(rec, req)
+
+			if rec.Code == http.StatusCreated {
+				var resp struct {
+					ID int64 `json:"id"`
+				}
+				if err := json.Unmarshal(rec.Body.Bytes(), &resp); err == nil && resp.ID > 0 {
+					t.Cleanup(func() {
+						_, _ = testDB.NewDelete().Model((*models.MatchRecord)(nil)).Where("id = ?", resp.ID).Exec(ctx)
+					})
+				}
+			}
+
+			if rec.Code != tc.expectedStatus {
+				t.Errorf("[%s] expected status %d, got %d. Body: %s",
+					tc.name, tc.expectedStatus, rec.Code, rec.Body.String())
+			}
+		})
+	}
+}
