@@ -230,3 +230,84 @@ func TestServeUpload(t *testing.T) {
 		})
 	}
 }
+
+func TestAvatarUpload_ReplacesOldFile(t *testing.T) {
+	ctx := context.Background()
+	user, cleanupUser := testutil.MakeTestUser(t, testDB)
+	t.Cleanup(cleanupUser)
+	testutil.RegisterUser(t, user, testDB)
+
+	tempUploads := t.TempDir()
+	handler := handlers.NewHandler(testDB, nil, nil, "", nil)
+	handler.UploadsDir = tempUploads
+
+	pngData, err := os.ReadFile("testdata/avatar.png")
+	if err != nil {
+		t.Fatalf("failed to read test PNG fixture: %v", err)
+	}
+	jpegData, err := os.ReadFile("testdata/avatar.jpg")
+	if err != nil {
+		t.Fatalf("failed to read test JPEG fixture: %v", err)
+	}
+
+	// 1. First upload (PNG)
+	req1 := buildMultipartRequest(t, "avatar", "first.png", pngData)
+	req1 = req1.WithContext(handlers.ContextWithUserID(req1.Context(), user.ID))
+	rec1 := httptest.NewRecorder()
+	handler.AvatarUpload(rec1, req1)
+
+	if rec1.Code != http.StatusOK {
+		t.Fatalf("first upload failed with status %d: %s", rec1.Code, rec1.Body.String())
+	}
+
+	var profile1 models.UserProfile
+	if err := json.Unmarshal(rec1.Body.Bytes(), &profile1); err != nil {
+		t.Fatalf("failed to decode response profile 1: %v", err)
+	}
+	firstFilename := filepath.Base(*profile1.AvatarURL)
+	firstPath := filepath.Join(tempUploads, firstFilename)
+	if _, err := os.Stat(firstPath); err != nil {
+		t.Fatalf("first avatar file not found on disk at %s: %v", firstPath, err)
+	}
+
+	// 2. Second upload (JPEG, replaces first)
+	req2 := buildMultipartRequest(t, "avatar", "replacement.jpg", jpegData)
+	req2 = req2.WithContext(handlers.ContextWithUserID(req2.Context(), user.ID))
+	rec2 := httptest.NewRecorder()
+	handler.AvatarUpload(rec2, req2)
+
+	if rec2.Code != http.StatusOK {
+		t.Fatalf("second upload failed with status %d: %s", rec2.Code, rec2.Body.String())
+	}
+
+	var profile2 models.UserProfile
+	if err := json.Unmarshal(rec2.Body.Bytes(), &profile2); err != nil {
+		t.Fatalf("failed to decode response profile 2: %v", err)
+	}
+	secondFilename := filepath.Base(*profile2.AvatarURL)
+	secondPath := filepath.Join(tempUploads, secondFilename)
+
+	if firstFilename == secondFilename {
+		t.Errorf("expected new unique filename for second upload, got same: %s", secondFilename)
+	}
+
+	// First file must now be deleted from disk
+	if _, err := os.Stat(firstPath); !os.IsNotExist(err) {
+		t.Errorf("expected previous avatar file %s to be deleted, but it still exists", firstPath)
+	}
+
+	// Second file must exist on disk
+	if _, err := os.Stat(secondPath); err != nil {
+		t.Errorf("expected replacement avatar file %s to exist, got error: %v", secondPath, err)
+	}
+
+	// Check DB points to the replacement file
+	var dbUser models.User
+	if err := testDB.NewSelect().Model(&dbUser).Where("id = ?", user.ID).Scan(ctx); err != nil {
+		t.Fatalf("failed to query user from db: %v", err)
+	}
+	if dbUser.AvatarURL == nil || *dbUser.AvatarURL != *profile2.AvatarURL {
+		t.Errorf("expected db avatar_url %s, got %v", *profile2.AvatarURL, dbUser.AvatarURL)
+	}
+}
+

@@ -93,7 +93,19 @@ func (h *Handler) AvatarUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 7. Return updated profile (contains username, bio, avatarUrl)
+	// 7. Clean up older avatar files belonging to this user
+	pattern := filepath.Join(uploadDir, fmt.Sprintf("avatar_%d_*.png", userID))
+	if matches, err := filepath.Glob(pattern); err == nil {
+		for _, match := range matches {
+			if filepath.Base(match) != filename {
+				if err := os.Remove(match); err != nil && !os.IsNotExist(err) {
+					slog.Warn("failed to remove old avatar file", "path", match, "error", err)
+				}
+			}
+		}
+	}
+
+	// 8. Return updated profile (contains username, bio, avatarUrl)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(profile)
