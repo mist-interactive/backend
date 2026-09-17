@@ -33,7 +33,7 @@ func NewHub(store DataStore) *Hub {
 		clients:       make(map[int64]*Client),
 		register:      make(chan *Client),
 		unregister:    make(chan *Client),
-		unicast:       make(chan UserMessage),
+		unicast:       make(chan UserMessage, 256),
 		presenceSync:  make(chan PresenceSync),
 		invites:       make(map[inviteKey]bool),
 		matchAction:   make(chan MatchAction),
