@@ -12,7 +12,7 @@ services:
     networks:
       - db_network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $$DB_USER -d $$DB_NAME"]
+      test: ["CMD-SHELL", "pg_isready -h localhost -U $$DB_USER -d $$DB_NAME"]
       interval: 3s
       timeout: 3s
       retries: 5
@@ -45,6 +45,7 @@ services:
       timeout: 3s
       retries: 5
       start_period: 3s
+    restart: on-failure
 
   go-pprof-proxy:
     image: alpine/socat
