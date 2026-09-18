@@ -259,3 +259,35 @@ func (h *Handler) UserActiveMatchGet(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(resp)
 }
+
+// MatchHeartbeat handles PATCH /api/internal/matches/{id}/heartbeat.
+// It is called periodically by the game server to report keepalives for an active match.
+// Updates last_heartbeat_at timestamp to prevent the match from being swept as abandoned.
+func (h *Handler) MatchHeartbeat(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	matchID, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		slog.Warn("match heartbeat rejected: invalid match ID", "id", idStr, "error", err)
+		http.Error(w, "Invalid match ID", http.StatusBadRequest)
+		return
+	}
+
+	now := time.Now()
+	res, err := h.DB.NewUpdate().
+		Model((*models.MatchRecord)(nil)).
+		Where("id = ?", matchID).
+		Where("status = ?", models.StatusInProgress).
+		Set("last_heartbeat_at = ?", now).
+		Exec(r.Context())
+	if err != nil {
+		HandleDBError(w, err, "Updating match heartbeat")
+		return
+	}
+	rows, _ := res.RowsAffected()
+	if rows == 0 {
+		slog.Warn("match heartbeat update failed: no match in progress found", "match_id", matchID)
+		http.Error(w, fmt.Sprintf("No match in progress with ID %d was found", matchID), http.StatusConflict)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
