@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/uptrace/bun"
 )
@@ -480,3 +481,123 @@ func TestMatchCreate(t *testing.T) {
 		})
 	}
 }
+
+func TestMatchHeartbeat(t *testing.T) {
+	ctx := context.Background()
+	user1, cleanup1 := testutil.MakeTestUser(t, testDB)
+	t.Cleanup(cleanup1)
+	testutil.RegisterUser(t, user1, testDB)
+
+	user2, cleanup2 := testutil.MakeTestUser(t, testDB)
+	t.Cleanup(cleanup2)
+	testutil.RegisterUser(t, user2, testDB)
+
+	t.Cleanup(func() {
+		_, _ = testDB.NewDelete().
+			Model((*models.MatchRecord)(nil)).
+			Where("player_one IN (?, ?) OR player_two IN (?, ?)",
+				user1.ID, user2.ID, user1.ID, user2.ID).
+			Exec(ctx)
+	})
+
+	handler := handlers.NewHandler(testDB, nil, nil, "", nil)
+
+	tests := []struct {
+		name           string
+		setup          func(t *testing.T) (int64, time.Time)
+		expectedStatus int
+		validate       func(t *testing.T, matchID int64, prevHeartbeat time.Time)
+	}{
+		{
+			name: "Success: Heartbeat updates last_heartbeat_at for active match",
+			setup: func(t *testing.T) (int64, time.Time) {
+				past := time.Now().Add(-10 * time.Second).UTC().Truncate(time.Microsecond)
+				match := &models.MatchRecord{
+					Player1:         user1.ID,
+					Player2:         user2.ID,
+					Status:          models.StatusInProgress,
+					LastHeartbeatAt: past,
+				}
+				if _, err := testDB.NewInsert().Model(match).Exec(ctx); err != nil {
+					t.Fatalf("failed to insert active match: %v", err)
+				}
+				t.Cleanup(func() {
+					_, _ = testDB.NewDelete().Model((*models.MatchRecord)(nil)).Where("id = ?", match.ID).Exec(ctx)
+				})
+				return match.ID, past
+			},
+			expectedStatus: http.StatusNoContent,
+			validate: func(t *testing.T, matchID int64, prevHeartbeat time.Time) {
+				var updated models.MatchRecord
+				if err := testDB.NewSelect().Model(&updated).Where("id = ?", matchID).Scan(ctx); err != nil {
+					t.Fatalf("failed to fetch updated match: %v", err)
+				}
+				if !updated.LastHeartbeatAt.After(prevHeartbeat) {
+					t.Errorf("expected last_heartbeat_at (%v) to be after previous timestamp (%v)",
+						updated.LastHeartbeatAt, prevHeartbeat)
+				}
+			},
+		},
+		{
+			name: "Failure: Match already finished",
+			setup: func(t *testing.T) (int64, time.Time) {
+				result := models.ResultPlayer1Win
+				finishedMatch := &models.MatchRecord{
+					Player1: user1.ID,
+					Player2: user2.ID,
+					Status:  models.StatusFinished,
+					Result:  &result,
+				}
+				if _, err := testDB.NewInsert().Model(finishedMatch).Exec(ctx); err != nil {
+					t.Fatalf("failed to insert finished match: %v", err)
+				}
+				t.Cleanup(func() {
+					_, _ = testDB.NewDelete().Model((*models.MatchRecord)(nil)).Where("id = ?", finishedMatch.ID).Exec(ctx)
+				})
+				return finishedMatch.ID, time.Time{}
+			},
+			expectedStatus: http.StatusConflict,
+		},
+		{
+			name: "Failure: Match already abandoned",
+			setup: func(t *testing.T) (int64, time.Time) {
+				result := models.ResultAborted
+				abandonedMatch := &models.MatchRecord{
+					Player1: user1.ID,
+					Player2: user2.ID,
+					Status:  models.StatusAbandoned,
+					Result:  &result,
+				}
+				if _, err := testDB.NewInsert().Model(abandonedMatch).Exec(ctx); err != nil {
+					t.Fatalf("failed to insert abandoned match: %v", err)
+				}
+				t.Cleanup(func() {
+					_, _ = testDB.NewDelete().Model((*models.MatchRecord)(nil)).Where("id = ?", abandonedMatch.ID).Exec(ctx)
+				})
+				return abandonedMatch.ID, time.Time{}
+			},
+			expectedStatus: http.StatusConflict,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			matchID, prevHeartbeat := tc.setup(t)
+			req := httptest.NewRequest(http.MethodPatch, fmt.Sprintf("/api/internal/matches/%d/heartbeat", matchID), nil)
+			req.SetPathValue("id", fmt.Sprintf("%d", matchID))
+			rec := httptest.NewRecorder()
+
+			handler.MatchHeartbeat(rec, req)
+
+			if rec.Code != tc.expectedStatus {
+				t.Errorf("[%s] expected status %d, got %d. Server response: %q",
+					tc.name, tc.expectedStatus, rec.Code, rec.Body.String())
+			}
+
+			if tc.validate != nil {
+				tc.validate(t, matchID, prevHeartbeat)
+			}
+		})
+	}
+}
+
