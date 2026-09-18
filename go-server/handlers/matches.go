@@ -260,7 +260,7 @@ func (h *Handler) UserActiveMatchGet(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
-// MatchHeartbeat handles PATCH /api/internal/matches/{id}/heartbeat.
+// MatchHeartbeat handles PUT /api/internal/matches/{id}/heartbeat.
 // It is called periodically by the game server to report keepalives for an active match.
 // Updates last_heartbeat_at timestamp to prevent the match from being swept as abandoned.
 func (h *Handler) MatchHeartbeat(w http.ResponseWriter, r *http.Request) {
