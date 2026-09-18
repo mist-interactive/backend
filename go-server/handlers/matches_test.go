@@ -606,7 +606,7 @@ func TestMatchHeartbeat(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			matchID, prevHeartbeat := tc.setup(t)
-			req := httptest.NewRequest(http.MethodPatch, fmt.Sprintf("/api/internal/matches/%d/heartbeat", matchID), nil)
+			req := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/internal/matches/%d/heartbeat", matchID), nil)
 			req.SetPathValue("id", fmt.Sprintf("%d", matchID))
 			rec := httptest.NewRecorder()
 
