@@ -10,6 +10,15 @@ import (
 )
 
 func SeedDevDatabase(ctx context.Context, db *bun.DB) error {
+	exists, err := db.NewSelect().Model((*models.User)(nil)).Exists(ctx) //first check if db is already filled, and exit early if so
+	if err != nil {
+		return err
+	}
+	if exists {
+		log.Println("Database already populated, skipping dev seeding.")
+		return nil
+	}
+
 	hash, _ := bcrypt.GenerateFromPassword([]byte("password123"), bcrypt.DefaultCost)
 	names := []string{"nraatika", "mhirvasm", "jpelline", "anpollan", "zfarah", "loser1", "loser2", "loser3", "loser4", "loser5"}
 
@@ -18,7 +27,7 @@ func SeedDevDatabase(ctx context.Context, db *bun.DB) error {
 	for i, name := range names {
 		users[i] = models.User{Username: name, Email: name + "@student.hive.fi", PWHash: string(hash)}
 	}
-	err := db.NewInsert().Model(&users).Scan(ctx)
+	err = db.NewInsert().Model(&users).Scan(ctx)
 	if err != nil {
 		return err
 	}

@@ -28,16 +28,18 @@ func RunMigrations(ctx context.Context, db *bun.DB) error {
 	}
 
 	migrator := migrate.NewMigrator(db, Migrations)
-	migrator.Lock(ctx)
+	if err = migrator.Init(ctx); err != nil { //always call Init first to ensure the necessary tables exist in the DB
+		return err
+	}
+	if err = migrator.Lock(ctx); err != nil {
+		return err
+	}
+
 	defer func() { //need a detached context for unlock, to ensure it can run if the passed-in context gets cancelled
 		unlockCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_ = migrator.Unlock(unlockCtx)
 	}()
-
-	if err = migrator.Init(ctx); err != nil {
-		return err
-	}
 
 	var group *migrate.MigrationGroup
 	group, err = migrator.Migrate(ctx)

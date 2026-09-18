@@ -37,14 +37,19 @@ func InitDB() (*bun.DB, error) {
 	}
 
 	sqlDB := sql.OpenDB(pgdriver.NewConnector(pgdriver.WithDSN(db_string)))
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	if err := sqlDB.PingContext(ctx); err != nil {
-		return nil, err
+	var err error
+	var attempt int
+	for attempt = range 15 { //limited number of retries to connect to DB
+		pingCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		err = sqlDB.PingContext(pingCtx)
+		cancel()
+		if err == nil {
+			log.Printf("Successfully connected to the database '%s' on try %d!\n", dbName, attempt+1)
+			return bun.NewDB(sqlDB, pgdialect.New()), nil
+		}
+		time.Sleep(1 * time.Second)
 	}
-	fmt.Println("Successfully connected to the database!", dbName)
-	return bun.NewDB(sqlDB, pgdialect.New()), nil
+	return nil, fmt.Errorf("couldn't connect to DB in %d attempts: %v", attempt+1, err)
 }
 
 func getDBPassword() string {
