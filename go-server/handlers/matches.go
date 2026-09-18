@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"dbBackend/models"
 	"encoding/json"
 	"fmt"
@@ -37,6 +38,10 @@ func (h *Handler) MatchCreate(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("match create failed: player 2 not found", "player2", input.Player2, "error", err)
 		http.Error(w, "Player 2 not found", http.StatusNotFound)
 		return
+	}
+
+	if _, err := h.SweepStaleMatches(r.Context(), models.DefaultHeartbeatTimeout); err != nil {
+		slog.Warn("failed to sweep stale matches before match create", "error", err)
 	}
 
 	hasActiveMatch, err := h.DB.NewSelect().
@@ -230,6 +235,10 @@ func (h *Handler) UserActiveMatchGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if _, err := h.SweepStaleMatches(r.Context(), models.DefaultHeartbeatTimeout); err != nil {
+		slog.Warn("failed to sweep stale matches before active match get", "error", err)
+	}
+
 	var resp models.ActiveMatchResponse
 	err := h.DB.NewSelect().
 		TableExpr("matches AS m").
@@ -291,3 +300,79 @@ func (h *Handler) MatchHeartbeat(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// SweepStaleMatches finds all matches still marked 'in_progress' whose last heartbeat
+// is older than the timeout threshold, marks them 'abandoned'/'aborted', and emits
+// real-time notifications to the Hub.
+func (h *Handler) SweepStaleMatches(ctx context.Context, timeout time.Duration) ([]models.MatchRecord, error) {
+	if timeout <= 0 {
+		timeout = models.DefaultHeartbeatTimeout
+	}
+	now := time.Now()
+	cutoff := now.Add(-timeout)
+
+	var swept []models.MatchRecord
+	err := h.DB.NewUpdate().
+		Model((*models.MatchRecord)(nil)).
+		Where("status = ?", models.StatusInProgress).
+		Where("last_heartbeat_at < ?", cutoff).
+		Set("status = ?", models.StatusAbandoned).
+		Set("result = ?", models.ResultAborted).
+		Set("finished_at = ?", now).
+		Returning("*").
+		Scan(ctx, &swept)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(swept) > 0 {
+		slog.Info("swept stale matches", "count", len(swept), "cutoff", cutoff)
+		if h.Notifier != nil {
+			for _, match := range swept {
+				payload := models.MatchFinishedPayload{
+					MatchID:      match.ID,
+					Player1:      match.Player1,
+					Player2:      match.Player2,
+					Player1Score: 0,
+					Player2Score: 0,
+					Status:       match.Status,
+					Result:       *match.Result,
+					WinnerID:     nil,
+				}
+				if err := h.Notifier.MatchFinished(payload); err != nil {
+					slog.Warn("could not dispatch match finish notification on sweep", "match_id", match.ID, "error", err)
+				}
+			}
+		}
+	}
+
+	return swept, nil
+}
+
+// StartBackgroundSweeper starts a background goroutine that periodically sweeps
+// abandoned matches whose last heartbeat is older than timeout.
+func (h *Handler) StartBackgroundSweeper(ctx context.Context, interval, timeout time.Duration) {
+	if interval <= 0 {
+		interval = models.DefaultSweepInterval
+	}
+	if timeout <= 0 {
+		timeout = models.DefaultHeartbeatTimeout
+	}
+
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if _, err := h.SweepStaleMatches(ctx, timeout); err != nil {
+					slog.Warn("background match sweep failed", "error", err)
+				}
+			}
+		}
+	}()
+}
+

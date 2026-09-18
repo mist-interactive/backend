@@ -4,6 +4,7 @@ import (
 	"context"
 	"dbBackend/db"
 	"dbBackend/handlers"
+	"dbBackend/models"
 	"dbBackend/realtime"
 	"fmt"
 	"log"
@@ -87,6 +88,7 @@ func main() {
 	go hub.Run()
 
 	h := handlers.NewHandler(postgres, rsaKey, pubKey, apiKey, hub)
+	h.StartBackgroundSweeper(context.Background(), models.DefaultSweepInterval, models.DefaultHeartbeatTimeout)
 
 	mux := http.NewServeMux()
 	mux.Handle("/debug/pprof/", http.DefaultServeMux)

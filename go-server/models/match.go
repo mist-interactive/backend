@@ -18,6 +18,9 @@ const (
 	ResultPlayer2Win MatchResult = "player2_win"
 	ResultDraw       MatchResult = "draw"
 	ResultAborted    MatchResult = "aborted"
+
+	DefaultHeartbeatTimeout = 60 * time.Second
+	DefaultSweepInterval    = 30 * time.Second
 )
 
 type MatchRecord struct {
