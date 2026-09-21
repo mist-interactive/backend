@@ -3,4 +3,4 @@ set -e
 
 docker compose exec -T go-server go test -v -count=1 ./handlers
 docker compose exec -T go-server go test -v -count=1 ./models
-docker compose exec -T go-server go test -v -count=1 ./realtime
+docker compose exec -T go-server go test -race -v -count=1 ./realtime
