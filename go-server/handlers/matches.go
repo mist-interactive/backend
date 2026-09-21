@@ -262,7 +262,7 @@ func (h *Handler) UserActiveMatchGet(w http.ResponseWriter, r *http.Request) {
 
 // MatchHistoryGet handles GET /api/protected/matches.
 // It retrieves the match history for the authenticated user, mapping opponent info,
-// user-relative scores, and outcome (win, loss, draw, aborted).
+// user-relative scores, and outcome (win, loss, aborted).
 // Supports optional query parameters:
 //   - status: filter by match status (e.g., 'finished', 'in_progress', 'abandoned')
 //   - limit: maximum number of records to return (default 50, max 100)
@@ -289,7 +289,6 @@ func (h *Handler) MatchHistoryGet(w http.ResponseWriter, r *http.Request) {
 		ColumnExpr("m.result AS result").
 		ColumnExpr(`CASE
 			WHEN m.result IS NULL THEN NULL
-			WHEN m.result = 'draw' THEN 'draw'
 			WHEN m.result = 'aborted' THEN 'aborted'
 			WHEN (m.player_one = ? AND m.result = 'player1_win') OR (m.player_two = ? AND m.result = 'player2_win') THEN 'win'
 			ELSE 'loss'

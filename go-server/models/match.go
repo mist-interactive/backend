@@ -22,7 +22,6 @@ const (
 
 	OutcomeWin     MatchOutcome = "win"
 	OutcomeLoss    MatchOutcome = "loss"
-	OutcomeDraw    MatchOutcome = "draw"
 	OutcomeAborted MatchOutcome = "aborted"
 )
 
