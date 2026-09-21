@@ -11,22 +11,19 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/uptrace/bun"
 )
 
 func TestMatchPatch(t *testing.T) {
 	ctx := context.Background()
-	user1, cleanup1 := testutil.MakeTestUser(t, testDB)
-	t.Cleanup(cleanup1)
-	testutil.RegisterUser(t, user1, testDB)
-
-	user2, cleanup2 := testutil.MakeTestUser(t, testDB)
-	t.Cleanup(cleanup2)
-	testutil.RegisterUser(t, user2, testDB)
+	users := testutil.MakeNTestUsers(t, testDB, 3)
+	ids := testutil.UserIDs(users)
 
 	t.Cleanup(func() {
 		_, _ = testDB.NewDelete().
 			Model((*models.MatchRecord)(nil)).
-			Where("player_one IN (?, ?) OR player_two IN (?, ?)", user1.ID, user2.ID, user1.ID, user2.ID).
+			Where("player_one IN (?) OR player_two IN (?)", bun.List(ids), bun.List(ids)).
 			Exec(ctx)
 	})
 
@@ -42,8 +39,8 @@ func TestMatchPatch(t *testing.T) {
 			name: "Success: Unordered scores mapped correctly and player 2 win inferred",
 			setup: func(t *testing.T) (int64, models.MatchPatchInput) {
 				match := &models.MatchRecord{
-					Player1: user1.ID,
-					Player2: user2.ID,
+					Player1: users[0].ID,
+					Player2: users[1].ID,
 					Status:  models.StatusInProgress,
 				}
 				if _, err := testDB.NewInsert().Model(match).Exec(ctx); err != nil {
@@ -51,8 +48,8 @@ func TestMatchPatch(t *testing.T) {
 				}
 				return match.ID, models.MatchPatchInput{
 					Scores: []models.PlayerScoreInput{
-						{PlayerID: user2.ID, Score: 7},
-						{PlayerID: user1.ID, Score: 3},
+						{PlayerID: users[1].ID, Score: 7},
+						{PlayerID: users[0].ID, Score: 3},
 					},
 				}
 			},
@@ -83,8 +80,8 @@ func TestMatchPatch(t *testing.T) {
 			name: "Success: Equal scores infer draw",
 			setup: func(t *testing.T) (int64, models.MatchPatchInput) {
 				match := &models.MatchRecord{
-					Player1: user1.ID,
-					Player2: user2.ID,
+					Player1: users[0].ID,
+					Player2: users[1].ID,
 					Status:  models.StatusInProgress,
 				}
 				if _, err := testDB.NewInsert().Model(match).Exec(ctx); err != nil {
@@ -92,8 +89,8 @@ func TestMatchPatch(t *testing.T) {
 				}
 				return match.ID, models.MatchPatchInput{
 					Scores: []models.PlayerScoreInput{
-						{PlayerID: user1.ID, Score: 4},
-						{PlayerID: user2.ID, Score: 4},
+						{PlayerID: users[0].ID, Score: 4},
+						{PlayerID: users[1].ID, Score: 4},
 					},
 				}
 			},
@@ -122,8 +119,8 @@ func TestMatchPatch(t *testing.T) {
 			setup: func(t *testing.T) (int64, models.MatchPatchInput) {
 				return 999, models.MatchPatchInput{
 					Scores: []models.PlayerScoreInput{
-						{PlayerID: user1.ID, Score: 5},
-						{PlayerID: user1.ID, Score: 2},
+						{PlayerID: users[0].ID, Score: 5},
+						{PlayerID: users[0].ID, Score: 2},
 					},
 				}
 			},
@@ -133,8 +130,8 @@ func TestMatchPatch(t *testing.T) {
 			name: "Failure: Non-participant player ID in scores",
 			setup: func(t *testing.T) (int64, models.MatchPatchInput) {
 				match := &models.MatchRecord{
-					Player1: user1.ID,
-					Player2: user2.ID,
+					Player1: users[0].ID,
+					Player2: users[1].ID,
 					Status:  models.StatusInProgress,
 				}
 				if _, err := testDB.NewInsert().Model(match).Exec(ctx); err != nil {
@@ -142,8 +139,8 @@ func TestMatchPatch(t *testing.T) {
 				}
 				return match.ID, models.MatchPatchInput{
 					Scores: []models.PlayerScoreInput{
-						{PlayerID: user1.ID, Score: 5},
-						{PlayerID: 999999, Score: 2},
+						{PlayerID: users[0].ID, Score: 5},
+						{PlayerID: users[2].ID, Score: 2}, // non-participant in this match
 					},
 				}
 			},
@@ -154,8 +151,8 @@ func TestMatchPatch(t *testing.T) {
 			setup: func(t *testing.T) (int64, models.MatchPatchInput) {
 				result := models.ResultPlayer1Win
 				match := &models.MatchRecord{
-					Player1: user1.ID,
-					Player2: user2.ID,
+					Player1: users[0].ID,
+					Player2: users[1].ID,
 					Status:  models.StatusFinished,
 					Result:  &result,
 				}
@@ -164,8 +161,8 @@ func TestMatchPatch(t *testing.T) {
 				}
 				return match.ID, models.MatchPatchInput{
 					Scores: []models.PlayerScoreInput{
-						{PlayerID: user1.ID, Score: 5},
-						{PlayerID: user2.ID, Score: 2},
+						{PlayerID: users[0].ID, Score: 5},
+						{PlayerID: users[1].ID, Score: 2},
 					},
 				}
 			},
@@ -198,23 +195,13 @@ func TestMatchPatch(t *testing.T) {
 
 func TestUserActiveMatchGet(t *testing.T) {
 	ctx := context.Background()
-	user1, cleanup1 := testutil.MakeTestUser(t, testDB)
-	t.Cleanup(cleanup1)
-	testutil.RegisterUser(t, user1, testDB)
-
-	user2, cleanup2 := testutil.MakeTestUser(t, testDB)
-	t.Cleanup(cleanup2)
-	testutil.RegisterUser(t, user2, testDB)
-
-	user3, cleanup3 := testutil.MakeTestUser(t, testDB)
-	t.Cleanup(cleanup3)
-	testutil.RegisterUser(t, user3, testDB)
+	users := testutil.MakeNTestUsers(t, testDB, 3)
+	ids := testutil.UserIDs(users)
 
 	t.Cleanup(func() {
 		_, _ = testDB.NewDelete().
 			Model((*models.MatchRecord)(nil)).
-			Where("player_one IN (?, ?, ?) OR player_two IN (?, ?, ?)",
-				user1.ID, user2.ID, user3.ID, user1.ID, user2.ID, user3.ID).
+			Where("player_one IN (?) OR player_two IN (?)", bun.List(ids), bun.List(ids)).
 			Exec(ctx)
 	})
 
@@ -231,8 +218,8 @@ func TestUserActiveMatchGet(t *testing.T) {
 			name: "Success: User is player 1 in ongoing match",
 			setup: func(t *testing.T) string {
 				match := &models.MatchRecord{
-					Player1: user1.ID,
-					Player2: user2.ID,
+					Player1: users[0].ID,
+					Player2: users[1].ID,
 					Status:  models.StatusInProgress,
 				}
 				if _, err := testDB.NewInsert().Model(match).Exec(ctx); err != nil {
@@ -241,7 +228,7 @@ func TestUserActiveMatchGet(t *testing.T) {
 				t.Cleanup(func() {
 					_, _ = testDB.NewDelete().Model((*models.MatchRecord)(nil)).Where("id = ?", match.ID).Exec(ctx)
 				})
-				return fmt.Sprintf("%d", user1.ID)
+				return fmt.Sprintf("%d", users[0].ID)
 			},
 			expectedStatus: http.StatusOK,
 			validate: func(t *testing.T, body []byte) {
@@ -249,11 +236,11 @@ func TestUserActiveMatchGet(t *testing.T) {
 				if err := json.Unmarshal(body, &resp); err != nil {
 					t.Fatalf("failed to decode response: %v", err)
 				}
-				if resp.OpponentID != user2.ID {
-					t.Errorf("expected opponent_id %d, got %d", user2.ID, resp.OpponentID)
+				if resp.OpponentID != users[1].ID {
+					t.Errorf("expected opponent_id %d, got %d", users[1].ID, resp.OpponentID)
 				}
-				if resp.OpponentUsername != user2.Username {
-					t.Errorf("expected opponent username %s, got %s", user2.Username, resp.OpponentUsername)
+				if resp.OpponentUsername != users[1].Username {
+					t.Errorf("expected opponent username %s, got %s", users[1].Username, resp.OpponentUsername)
 				}
 				if resp.MatchID == 0 {
 					t.Errorf("expected valid match_id, got 0")
@@ -267,8 +254,8 @@ func TestUserActiveMatchGet(t *testing.T) {
 			name: "Success: User is player 2 in ongoing match",
 			setup: func(t *testing.T) string {
 				match := &models.MatchRecord{
-					Player1: user1.ID,
-					Player2: user2.ID,
+					Player1: users[0].ID,
+					Player2: users[1].ID,
 					Status:  models.StatusInProgress,
 				}
 				if _, err := testDB.NewInsert().Model(match).Exec(ctx); err != nil {
@@ -277,7 +264,7 @@ func TestUserActiveMatchGet(t *testing.T) {
 				t.Cleanup(func() {
 					_, _ = testDB.NewDelete().Model((*models.MatchRecord)(nil)).Where("id = ?", match.ID).Exec(ctx)
 				})
-				return fmt.Sprintf("%d", user2.ID)
+				return fmt.Sprintf("%d", users[1].ID)
 			},
 			expectedStatus: http.StatusOK,
 			validate: func(t *testing.T, body []byte) {
@@ -285,11 +272,11 @@ func TestUserActiveMatchGet(t *testing.T) {
 				if err := json.Unmarshal(body, &resp); err != nil {
 					t.Fatalf("failed to decode response: %v", err)
 				}
-				if resp.OpponentID != user1.ID {
-					t.Errorf("expected opponent_id %d, got %d", user1.ID, resp.OpponentID)
+				if resp.OpponentID != users[0].ID {
+					t.Errorf("expected opponent_id %d, got %d", users[0].ID, resp.OpponentID)
 				}
-				if resp.OpponentUsername != user1.Username {
-					t.Errorf("expected opponent username %s, got %s", user1.Username, resp.OpponentUsername)
+				if resp.OpponentUsername != users[0].Username {
+					t.Errorf("expected opponent username %s, got %s", users[0].Username, resp.OpponentUsername)
 				}
 			},
 		},
@@ -298,8 +285,8 @@ func TestUserActiveMatchGet(t *testing.T) {
 			setup: func(t *testing.T) string {
 				result := models.ResultPlayer1Win
 				finishedMatch := &models.MatchRecord{
-					Player1: user1.ID,
-					Player2: user2.ID,
+					Player1: users[0].ID,
+					Player2: users[1].ID,
 					Status:  models.StatusFinished,
 					Result:  &result,
 				}
@@ -311,8 +298,8 @@ func TestUserActiveMatchGet(t *testing.T) {
 				})
 
 				activeMatch := &models.MatchRecord{
-					Player1: user1.ID,
-					Player2: user2.ID,
+					Player1: users[0].ID,
+					Player2: users[1].ID,
 					Status:  models.StatusInProgress,
 				}
 				if _, err := testDB.NewInsert().Model(activeMatch).Exec(ctx); err != nil {
@@ -321,7 +308,7 @@ func TestUserActiveMatchGet(t *testing.T) {
 				t.Cleanup(func() {
 					_, _ = testDB.NewDelete().Model((*models.MatchRecord)(nil)).Where("id = ?", activeMatch.ID).Exec(ctx)
 				})
-				return fmt.Sprintf("%d", user1.ID)
+				return fmt.Sprintf("%d", users[0].ID)
 			},
 			expectedStatus: http.StatusOK,
 			validate: func(t *testing.T, body []byte) {
@@ -329,8 +316,8 @@ func TestUserActiveMatchGet(t *testing.T) {
 				if err := json.Unmarshal(body, &resp); err != nil {
 					t.Fatalf("failed to decode response: %v", err)
 				}
-				if resp.OpponentID != user2.ID {
-					t.Errorf("expected opponent_id %d, got %d", user2.ID, resp.OpponentID)
+				if resp.OpponentID != users[1].ID {
+					t.Errorf("expected opponent_id %d, got %d", users[1].ID, resp.OpponentID)
 				}
 			},
 		},
@@ -339,8 +326,8 @@ func TestUserActiveMatchGet(t *testing.T) {
 			setup: func(t *testing.T) string {
 				result := models.ResultPlayer2Win
 				finishedMatch := &models.MatchRecord{
-					Player1: user1.ID,
-					Player2: user2.ID,
+					Player1: users[0].ID,
+					Player2: users[1].ID,
 					Status:  models.StatusFinished,
 					Result:  &result,
 				}
@@ -350,14 +337,14 @@ func TestUserActiveMatchGet(t *testing.T) {
 				t.Cleanup(func() {
 					_, _ = testDB.NewDelete().Model((*models.MatchRecord)(nil)).Where("id = ?", finishedMatch.ID).Exec(ctx)
 				})
-				return fmt.Sprintf("%d", user1.ID)
+				return fmt.Sprintf("%d", users[0].ID)
 			},
 			expectedStatus: http.StatusNotFound,
 		},
 		{
 			name: "Failure: User has no match history",
 			setup: func(t *testing.T) string {
-				return fmt.Sprintf("%d", user3.ID)
+				return fmt.Sprintf("%d", users[2].ID)
 			},
 			expectedStatus: http.StatusNotFound,
 		},
@@ -393,23 +380,13 @@ func TestUserActiveMatchGet(t *testing.T) {
 
 func TestMatchCreate(t *testing.T) {
 	ctx := context.Background()
-	user1, cleanup1 := testutil.MakeTestUser(t, testDB)
-	t.Cleanup(cleanup1)
-	testutil.RegisterUser(t, user1, testDB)
-
-	user2, cleanup2 := testutil.MakeTestUser(t, testDB)
-	t.Cleanup(cleanup2)
-	testutil.RegisterUser(t, user2, testDB)
-
-	user3, cleanup3 := testutil.MakeTestUser(t, testDB)
-	t.Cleanup(cleanup3)
-	testutil.RegisterUser(t, user3, testDB)
+	users := testutil.MakeNTestUsers(t, testDB, 3)
+	ids := testutil.UserIDs(users)
 
 	t.Cleanup(func() {
 		_, _ = testDB.NewDelete().
 			Model((*models.MatchRecord)(nil)).
-			Where("player_one IN (?, ?, ?) OR player_two IN (?, ?, ?)",
-				user1.ID, user2.ID, user3.ID, user1.ID, user2.ID, user3.ID).
+			Where("player_one IN (?) OR player_two IN (?)", bun.List(ids), bun.List(ids)).
 			Exec(ctx)
 	})
 
@@ -424,16 +401,16 @@ func TestMatchCreate(t *testing.T) {
 	}{
 		{
 			name:           "Success: Match created between available players",
-			player1:        user1.Username,
-			player2:        user2.Username,
+			player1:        users[0].Username,
+			player2:        users[1].Username,
 			expectedStatus: http.StatusCreated,
 		},
 		{
 			name: "Failure: Blocked when a player already has an active match",
 			setup: func(t *testing.T) {
 				match := &models.MatchRecord{
-					Player1: user1.ID,
-					Player2: user3.ID,
+					Player1: users[0].ID,
+					Player2: users[2].ID,
 					Status:  models.StatusInProgress,
 				}
 				if _, err := testDB.NewInsert().Model(match).Exec(ctx); err != nil {
@@ -443,8 +420,8 @@ func TestMatchCreate(t *testing.T) {
 					_, _ = testDB.NewDelete().Model((*models.MatchRecord)(nil)).Where("id = ?", match.ID).Exec(ctx)
 				})
 			},
-			player1:        user1.Username,
-			player2:        user2.Username,
+			player1:        users[0].Username,
+			player2:        users[1].Username,
 			expectedStatus: http.StatusConflict,
 		},
 		{
@@ -452,8 +429,8 @@ func TestMatchCreate(t *testing.T) {
 			setup: func(t *testing.T) {
 				result := models.ResultPlayer1Win
 				finished := &models.MatchRecord{
-					Player1: user1.ID,
-					Player2: user2.ID,
+					Player1: users[0].ID,
+					Player2: users[1].ID,
 					Status:  models.StatusFinished,
 					Result:  &result,
 				}
@@ -464,8 +441,8 @@ func TestMatchCreate(t *testing.T) {
 					_, _ = testDB.NewDelete().Model((*models.MatchRecord)(nil)).Where("id = ?", finished.ID).Exec(ctx)
 				})
 			},
-			player1:        user1.Username,
-			player2:        user2.Username,
+			player1:        users[0].Username,
+			player2:        users[1].Username,
 			expectedStatus: http.StatusCreated,
 		},
 	}

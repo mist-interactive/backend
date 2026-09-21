@@ -64,6 +64,29 @@ func RegisterUser(t *testing.T, u *models.User, testDB *bun.DB) {
 	}
 }
 
+// MakeNTestUsers generates and registers n unique test users in the database,
+// automatically scheduling individual cleanup on test completion via t.Cleanup.
+func MakeNTestUsers(t *testing.T, testDB *bun.DB, n int) []*models.User {
+	t.Helper()
+	users := make([]*models.User, n)
+	for i := range n {
+		u, cleanup := MakeTestUser(t, testDB)
+		t.Cleanup(cleanup)
+		RegisterUser(t, u, testDB)
+		users[i] = u
+	}
+	return users
+}
+
+// UserIDs extracts a slice of user primary key IDs from a slice of User models.
+func UserIDs(users []*models.User) []int64 {
+	ids := make([]int64, len(users))
+	for i, u := range users {
+		ids[i] = u.ID
+	}
+	return ids
+}
+
 func generateRandomString(length int) string {
 	bytes := make([]byte, length/2)
 	if _, err := rand.Read(bytes); err != nil {
