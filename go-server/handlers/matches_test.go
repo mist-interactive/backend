@@ -17,7 +17,7 @@ import (
 
 func TestMatchPatch(t *testing.T) {
 	ctx := context.Background()
-	users := testutil.MakeNTestUsers(t, testDB, 2)
+	users := testutil.MakeNTestUsers(t, testDB, 3)
 	ids := testutil.UserIDs(users)
 
 	t.Cleanup(func() {
@@ -140,7 +140,7 @@ func TestMatchPatch(t *testing.T) {
 				return match.ID, models.MatchPatchInput{
 					Scores: []models.PlayerScoreInput{
 						{PlayerID: users[0].ID, Score: 5},
-						{PlayerID: 999999, Score: 2},
+						{PlayerID: users[2].ID, Score: 2}, // non-participant in this match
 					},
 				}
 			},
