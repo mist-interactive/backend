@@ -241,7 +241,7 @@ This deletes the users profile. response is status code only.
 
 ##### `GET /api/protected/matches`
 
-Retrieves the match history for the authenticated user, ordered by `started_at DESC`. It maps opponent profile information, user-relative scores (`user_score` vs `opponent_score`), and the computed match outcome (`win`, `loss`, `draw`, `aborted`) relative to the authenticated user.
+Retrieves the match history for the authenticated user, ordered by `started_at DESC`. It maps opponent profile information, user-relative scores (`user_score` vs `opponent_score`), and the computed match outcome (`win`, `loss`, `aborted`) relative to the authenticated user.
 
 Supports optional query parameters:
 - `status`: filter by match status (`finished`, `in_progress`, `abandoned`)

@@ -554,20 +554,17 @@ func TestMatchHistoryGet_Integration(t *testing.T) {
 		t.Fatalf("failed to insert match 2: %v", err)
 	}
 
-	// Match 3: users[0] (p1) vs users[1] (p2), finished, draw (4-4), 10 mins ago
-	p1Score3, p2Score3 := 4, 4
-	result3 := models.ResultDraw
+	// Match 3: users[0] (p1) vs users[1] (p2), abandoned, aborted, 10 mins ago
+	result3 := models.ResultAborted
 	started3 := now.Add(-10 * time.Minute)
 	finished3 := now.Add(-1 * time.Minute)
 	m3 := &models.MatchRecord{
-		Player1:      users[0].ID,
-		Player2:      users[1].ID,
-		Player1Score: &p1Score3,
-		Player2Score: &p2Score3,
-		Status:       models.StatusFinished,
-		Result:       &result3,
-		StartedAt:    started3,
-		FinishedAt:   &finished3,
+		Player1:    users[0].ID,
+		Player2:    users[1].ID,
+		Status:     models.StatusAbandoned,
+		Result:     &result3,
+		StartedAt:  started3,
+		FinishedAt: &finished3,
 	}
 	if _, err := testDB.NewInsert().Model(m3).Exec(ctx); err != nil {
 		t.Fatalf("failed to insert match 3: %v", err)
@@ -653,18 +650,15 @@ func TestMatchHistoryGet_Integration(t *testing.T) {
 					t.Errorf("expected opponent %s, got %s", users[1].Username, history[0].OpponentUsername)
 				}
 
-				// Match 3: draw (4 - 4)
+				// Match 3: aborted
 				if history[1].ID != m3.ID {
 					t.Errorf("expected match ID %d, got %d", m3.ID, history[1].ID)
 				}
-				if history[1].Outcome == nil || *history[1].Outcome != models.OutcomeDraw {
-					t.Errorf("expected outcome %s, got %v", models.OutcomeDraw, history[1].Outcome)
+				if history[1].Outcome == nil || *history[1].Outcome != models.OutcomeAborted {
+					t.Errorf("expected outcome %s, got %v", models.OutcomeAborted, history[1].Outcome)
 				}
-				if history[1].UserScore == nil || *history[1].UserScore != 4 {
-					t.Errorf("expected user_score 4, got %v", history[1].UserScore)
-				}
-				if history[1].OpponentScore == nil || *history[1].OpponentScore != 4 {
-					t.Errorf("expected opponent_score 4, got %v", history[1].OpponentScore)
+				if history[1].UserScore != nil || history[1].OpponentScore != nil {
+					t.Errorf("expected nil scores for aborted match")
 				}
 
 				// Match 2: users[1] was player 1 (7), users[0] was player 2 (3) -> users[0] lost 3-7
@@ -706,13 +700,31 @@ func TestMatchHistoryGet_Integration(t *testing.T) {
 				if err := json.Unmarshal(rec.Body.Bytes(), &history); err != nil {
 					t.Fatalf("failed to decode response: %v", err)
 				}
-				if len(history) != 3 {
-					t.Fatalf("expected 3 finished matches, got %d", len(history))
+				if len(history) != 2 {
+					t.Fatalf("expected 2 finished matches, got %d", len(history))
 				}
 				for _, m := range history {
 					if m.Status != models.StatusFinished {
 						t.Errorf("expected status %s, got %s", models.StatusFinished, m.Status)
 					}
+				}
+			},
+		},
+		{
+			name:           "Success: Filter by status abandoned",
+			authHeader:     userAuth,
+			queryURL:       "/api/protected/matches?status=abandoned",
+			expectedStatus: http.StatusOK,
+			validate: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				var history []models.MatchHistoryResponse
+				if err := json.Unmarshal(rec.Body.Bytes(), &history); err != nil {
+					t.Fatalf("failed to decode response: %v", err)
+				}
+				if len(history) != 1 {
+					t.Fatalf("expected 1 abandoned match, got %d", len(history))
+				}
+				if history[0].ID != m3.ID {
+					t.Errorf("expected match ID %d, got %d", m3.ID, history[0].ID)
 				}
 			},
 		},
