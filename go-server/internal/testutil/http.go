@@ -5,7 +5,23 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"testing"
 )
+
+// Ptr returns a pointer to the passed value. Convenient for constructing test models with pointer fields.
+func Ptr[T any](v T) *T {
+	return &v
+}
+
+// DecodeJSON unmarshals a test HTTP response body into target type T.
+func DecodeJSON[T any](t testing.TB, rec *httptest.ResponseRecorder) T {
+	t.Helper()
+	var out T
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("failed to decode response JSON: %v. Body: %s", err, rec.Body.String())
+	}
+	return out
+}
 
 // RequestOption configures an outgoing test HTTP request.
 type RequestOption func(*http.Request)

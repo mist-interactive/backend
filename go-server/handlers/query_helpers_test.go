@@ -14,149 +14,61 @@ import (
 // Unit test: TestParseQueryInt verifies integer query parameter extraction,
 // default fallbacks, and boundary clamping using in-memory requests without a database.
 func TestParseQueryInt(t *testing.T) {
-	tests := []struct {
-		name       string
-		targetURL  string
-		key        string
-		defaultVal int
-		minVal     int
-		maxVal     int
-		want       int
-	}{
-		{
-			name:       "Missing key returns default",
-			targetURL:  "/test",
-			key:        "limit",
-			defaultVal: 50,
-			minVal:     1,
-			maxVal:     100,
-			want:       50,
-		},
-		{
-			name:       "Empty value returns default",
-			targetURL:  "/test?limit=",
-			key:        "limit",
-			defaultVal: 50,
-			minVal:     1,
-			maxVal:     100,
-			want:       50,
-		},
-		{
-			name:       "Valid value within bounds returns parsed value",
-			targetURL:  "/test?limit=25",
-			key:        "limit",
-			defaultVal: 50,
-			minVal:     1,
-			maxVal:     100,
-			want:       25,
-		},
-		{
-			name:       "Non-numeric value returns default",
-			targetURL:  "/test?limit=invalid",
-			key:        "limit",
-			defaultVal: 50,
-			minVal:     1,
-			maxVal:     100,
-			want:       50,
-		},
-		{
-			name:       "Value below minVal returns default",
-			targetURL:  "/test?limit=0",
-			key:        "limit",
-			defaultVal: 50,
-			minVal:     1,
-			maxVal:     100,
-			want:       50,
-		},
-		{
-			name:       "Negative value below minVal returns default",
-			targetURL:  "/test?limit=-10",
-			key:        "limit",
-			defaultVal: 50,
-			minVal:     1,
-			maxVal:     100,
-			want:       50,
-		},
-		{
-			name:       "Value above maxVal is clamped to maxVal",
-			targetURL:  "/test?limit=500",
-			key:        "limit",
-			defaultVal: 50,
-			minVal:     1,
-			maxVal:     100,
-			want:       100,
-		},
-		{
-			name:       "Unbounded maxVal (0) allows large values",
-			targetURL:  "/test?offset=1000",
-			key:        "offset",
-			defaultVal: 0,
-			minVal:     0,
-			maxVal:     0,
-			want:       1000,
-		},
-	}
+	t.Run("Standard bounded integer", func(t *testing.T) {
+		const def, min, max = 50, 1, 100
+		tests := []struct {
+			name  string
+			query string
+			want  int
+		}{
+			{"Missing key returns default", "", 50},
+			{"Empty value returns default", "limit=", 50},
+			{"Valid value within bounds returns parsed value", "limit=25", 25},
+			{"Non-numeric value returns default", "limit=invalid", 50},
+			{"Value below minVal returns default", "limit=0", 50},
+			{"Negative value below minVal returns default", "limit=-10", 50},
+			{"Value above maxVal is clamped to maxVal", "limit=500", 100},
+		}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			r := httptest.NewRequest(http.MethodGet, tc.targetURL, nil)
-			got := handlers.ParseQueryInt(r, tc.key, tc.defaultVal, tc.minVal, tc.maxVal)
-			if got != tc.want {
-				t.Errorf("handlers.ParseQueryInt() = %v, want %v", got, tc.want)
-			}
-		})
-	}
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				r := httptest.NewRequest(http.MethodGet, "/?"+tc.query, nil)
+				got := handlers.ParseQueryInt(r, "limit", def, min, max)
+				if got != tc.want {
+					t.Errorf("handlers.ParseQueryInt() = %v, want %v", got, tc.want)
+				}
+			})
+		}
+	})
+
+	t.Run("Unbounded maxVal allows large values", func(t *testing.T) {
+		r := httptest.NewRequest(http.MethodGet, "/?offset=1000", nil)
+		if got := handlers.ParseQueryInt(r, "offset", 0, 0, 0); got != 1000 {
+			t.Errorf("handlers.ParseQueryInt() = %v, want 1000", got)
+		}
+	})
 }
 
 // Unit test: TestParsePagination verifies limit and offset extraction,
 // default values, and boundary clamping into a Pagination struct without a database.
 func TestParsePagination(t *testing.T) {
+	const defLimit, maxLimit = 50, 100
 	tests := []struct {
-		name         string
-		targetURL    string
-		defaultLimit int
-		maxLimit     int
-		wantLimit    int
-		wantOffset   int
+		name       string
+		query      string
+		wantLimit  int
+		wantOffset int
 	}{
-		{
-			name:         "Default pagination with empty query",
-			targetURL:    "/test",
-			defaultLimit: 50,
-			maxLimit:     100,
-			wantLimit:    50,
-			wantOffset:   0,
-		},
-		{
-			name:         "Custom valid limit and offset",
-			targetURL:    "/test?limit=20&offset=15",
-			defaultLimit: 50,
-			maxLimit:     100,
-			wantLimit:    20,
-			wantOffset:   15,
-		},
-		{
-			name:         "Clamped limit exceeding maxLimit",
-			targetURL:    "/test?limit=200&offset=5",
-			defaultLimit: 50,
-			maxLimit:     100,
-			wantLimit:    100,
-			wantOffset:   5,
-		},
-		{
-			name:         "Negative offset falls back to 0",
-			targetURL:    "/test?limit=10&offset=-5",
-			defaultLimit: 50,
-			maxLimit:     100,
-			wantLimit:    10,
-			wantOffset:   0,
-		},
+		{"Default pagination with empty query", "", 50, 0},
+		{"Custom valid limit and offset", "limit=20&offset=15", 20, 15},
+		{"Clamped limit exceeding maxLimit", "limit=200&offset=5", 100, 5},
+		{"Negative offset falls back to 0", "limit=10&offset=-5", 10, 0},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			r := httptest.NewRequest(http.MethodGet, tc.targetURL, nil)
-			got := handlers.ParsePagination(r, tc.defaultLimit, tc.maxLimit)
+			r := httptest.NewRequest(http.MethodGet, "/?"+tc.query, nil)
+			got := handlers.ParsePagination(r, defLimit, maxLimit)
 			if got.Limit != tc.wantLimit {
 				t.Errorf("handlers.ParsePagination().Limit = %v, want %v", got.Limit, tc.wantLimit)
 			}
@@ -179,38 +91,35 @@ func TestResolveTargetUserID_Integration(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		targetURL  string
-		callerID   int64
+		username   string
 		wantUserID int64
 		wantErrIs  error
 	}{
 		{
 			name:       "Omitted username returns authenticated caller user ID",
-			targetURL:  "/api/protected/matches",
-			callerID:   caller.ID,
+			username:   "",
 			wantUserID: caller.ID,
-			wantErrIs:  nil,
 		},
 		{
 			name:       "Valid username returns target user ID",
-			targetURL:  "/api/protected/matches?username=" + target.Username,
-			callerID:   caller.ID,
+			username:   target.Username,
 			wantUserID: target.ID,
-			wantErrIs:  nil,
 		},
 		{
-			name:       "Non-existent username returns sql.ErrNoRows",
-			targetURL:  "/api/protected/matches?username=nonexistent_user_9999",
-			callerID:   caller.ID,
-			wantUserID: 0,
-			wantErrIs:  sql.ErrNoRows,
+			name:      "Non-existent username returns sql.ErrNoRows",
+			username:  "nonexistent_user_9999",
+			wantErrIs: sql.ErrNoRows,
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			r := httptest.NewRequest(http.MethodGet, tc.targetURL, nil)
-			ctxWithUser := handlers.ContextWithUserID(r.Context(), tc.callerID)
+			targetURL := "/api/protected/matches"
+			if tc.username != "" {
+				targetURL += "?username=" + tc.username
+			}
+			r := httptest.NewRequest(http.MethodGet, targetURL, nil)
+			ctxWithUser := handlers.ContextWithUserID(r.Context(), caller.ID)
 			r = r.WithContext(ctxWithUser)
 
 			gotID, err := h.ResolveTargetUserID(r)
