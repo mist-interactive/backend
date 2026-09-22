@@ -4,8 +4,7 @@ FROM golang:1.25-bookworm as base
 WORKDIR /app
 
 COPY go.mod go.sum ./
-RUN --mount=type=cache,target=/go/pkg/mod \
-  go mod download
+RUN go mod download
 
 #Stage 2a: hot reloading server for development
 FROM base AS dev
