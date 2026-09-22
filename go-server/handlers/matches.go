@@ -298,7 +298,7 @@ func (h *Handler) MatchHistoryGet(w http.ResponseWriter, r *http.Request) {
 		ColumnExpr("m.finished_at AS finished_at").
 		Join("JOIN users AS u ON (m.player_one = ? AND m.player_two = u.id) OR (m.player_two = ? AND m.player_one = u.id)", targetUserID, targetUserID).
 		Where("m.player_one = ? OR m.player_two = ?", targetUserID, targetUserID).
-		Order("m.started_at DESC")
+		Order("m.started_at DESC", "m.id DESC")
 
 	//add status filter if one was provided
 	if status := r.URL.Query().Get("status"); status != "" {
