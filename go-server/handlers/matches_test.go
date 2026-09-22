@@ -352,7 +352,7 @@ func TestUserActiveMatchGet(t *testing.T) {
 		{
 			name: "Failure: Stale match in progress is swept to abandoned, returning 404",
 			setup: func(t *testing.T) string {
-				staleHeartbeat := time.Now().Add(-2 * time.Minute).UTC().Truncate(time.Microsecond)
+				staleHeartbeat := time.Now().Add(-2 * time.Minute)
 				staleMatch := &models.MatchRecord{
 					Player1:         users[0].ID,
 					Player2:         users[1].ID,
@@ -481,7 +481,7 @@ func TestMatchCreate(t *testing.T) {
 		{
 			name: "Success: Allowed when prior match is stale (swept to abandoned)",
 			setup: func(t *testing.T) {
-				staleHeartbeat := time.Now().Add(-2 * time.Minute).UTC().Truncate(time.Microsecond)
+				staleHeartbeat := time.Now().Add(-2 * time.Minute)
 				stale := &models.MatchRecord{
 					Player1:         users[0].ID,
 					Player2:         users[1].ID,
@@ -543,7 +543,7 @@ func TestMatchHeartbeat(t *testing.T) {
 	t.Cleanup(func() {
 		_, _ = testDB.NewDelete().
 			Model((*models.MatchRecord)(nil)).
-			Where("player_one IN (?) OR player_two IN (?)", bun.In(ids), bun.In(ids)).
+			Where("player_one IN (?) OR player_two IN (?)", bun.List(ids), bun.List(ids)).
 			Exec(ctx)
 	})
 
@@ -558,7 +558,7 @@ func TestMatchHeartbeat(t *testing.T) {
 		{
 			name: "Success: Heartbeat updates last_heartbeat_at for active match",
 			setup: func(t *testing.T) (int64, time.Time) {
-				past := time.Now().Add(-10 * time.Second).UTC().Truncate(time.Microsecond)
+				past := time.Now().Add(-10 * time.Second)
 				match := &models.MatchRecord{
 					Player1:         users[0].ID,
 					Player2:         users[1].ID,
@@ -656,14 +656,14 @@ func TestSweepStaleMatches(t *testing.T) {
 	t.Cleanup(func() {
 		_, _ = testDB.NewDelete().
 			Model((*models.MatchRecord)(nil)).
-			Where("player_one IN (?) OR player_two IN (?)", bun.In(ids), bun.In(ids)).
+			Where("player_one IN (?) OR player_two IN (?)", bun.List(ids), bun.List(ids)).
 			Exec(ctx)
 	})
 
 	handler := handlers.NewHandler(testDB, nil, nil, "", nil)
 
 	t.Run("Sweeps only stale in-progress matches", func(t *testing.T) {
-		staleHeartbeat := time.Now().Add(-2 * time.Minute).UTC().Truncate(time.Microsecond)
+		staleHeartbeat := time.Now().Add(-2 * time.Minute)
 		staleMatch := &models.MatchRecord{
 			Player1:         users[0].ID,
 			Player2:         users[1].ID,
@@ -677,7 +677,7 @@ func TestSweepStaleMatches(t *testing.T) {
 			_, _ = testDB.NewDelete().Model((*models.MatchRecord)(nil)).Where("id = ?", staleMatch.ID).Exec(ctx)
 		})
 
-		freshHeartbeat := time.Now().UTC().Truncate(time.Microsecond)
+		freshHeartbeat := time.Now()
 		freshMatch := &models.MatchRecord{
 			Player1:         users[1].ID,
 			Player2:         users[2].ID,
