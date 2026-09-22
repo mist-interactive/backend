@@ -765,6 +765,70 @@ func TestMatchHistoryGet_Integration(t *testing.T) {
 				}
 			},
 		},
+		{
+			name:           "Success: Query match history of another user by username reflects their perspective",
+			authHeader:     userAuth,
+			queryURL:       "/api/protected/matches?username=" + users[1].Username,
+			expectedStatus: http.StatusOK,
+			validate: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				var history []models.MatchHistoryResponse
+				if err := json.Unmarshal(rec.Body.Bytes(), &history); err != nil {
+					t.Fatalf("failed to decode response: %v", err)
+				}
+				if len(history) != 4 {
+					t.Fatalf("expected 4 matches, got %d", len(history))
+				}
+
+				// Match 2: users[1] was player 1 (7), users[0] was player 2 (3) -> from users[1]'s perspective: win 7-3
+				if history[2].ID != m2.ID {
+					t.Errorf("expected match ID %d, got %d", m2.ID, history[2].ID)
+				}
+				if history[2].OpponentUsername != users[0].Username {
+					t.Errorf("expected opponent %s, got %s", users[0].Username, history[2].OpponentUsername)
+				}
+				if history[2].Outcome == nil || *history[2].Outcome != models.OutcomeWin {
+					t.Errorf("expected outcome %s, got %v", models.OutcomeWin, history[2].Outcome)
+				}
+				if history[2].UserScore == nil || *history[2].UserScore != 7 {
+					t.Errorf("expected user_score 7, got %v", history[2].UserScore)
+				}
+				if history[2].OpponentScore == nil || *history[2].OpponentScore != 3 {
+					t.Errorf("expected opponent_score 3, got %v", history[2].OpponentScore)
+				}
+
+				// Match 1: users[0] was player 1 (5), users[1] was player 2 (2) -> from users[1]'s perspective: loss 2-5
+				if history[3].ID != m1.ID {
+					t.Errorf("expected match ID %d, got %d", m1.ID, history[3].ID)
+				}
+				if history[3].OpponentUsername != users[0].Username {
+					t.Errorf("expected opponent %s, got %s", users[0].Username, history[3].OpponentUsername)
+				}
+				if history[3].Outcome == nil || *history[3].Outcome != models.OutcomeLoss {
+					t.Errorf("expected outcome %s, got %v", models.OutcomeLoss, history[3].Outcome)
+				}
+				if history[3].UserScore == nil || *history[3].UserScore != 2 {
+					t.Errorf("expected user_score 2, got %v", history[3].UserScore)
+				}
+				if history[3].OpponentScore == nil || *history[3].OpponentScore != 5 {
+					t.Errorf("expected opponent_score 5, got %v", history[3].OpponentScore)
+				}
+			},
+		},
+		{
+			name:           "Success: Query match history of existing user with zero matches returns empty JSON array",
+			authHeader:     userAuth,
+			queryURL:       "/api/protected/matches?username=" + users[2].Username,
+			expectedStatus: http.StatusOK,
+			validate: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				var history []models.MatchHistoryResponse
+				if err := json.Unmarshal(rec.Body.Bytes(), &history); err != nil {
+					t.Fatalf("failed to decode response: %v", err)
+				}
+				if len(history) != 0 {
+					t.Errorf("expected 0 matches, got %d", len(history))
+				}
+			},
+		},
 	}
 
 	for _, tc := range tests {

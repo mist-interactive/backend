@@ -241,9 +241,10 @@ This deletes the users profile. response is status code only.
 
 ##### `GET /api/protected/matches`
 
-Retrieves the match history for the authenticated user, ordered by `started_at DESC`. It maps opponent profile information, user-relative scores (`user_score` vs `opponent_score`), and the computed match outcome (`win`, `loss`, `aborted`) relative to the authenticated user.
+Retrieves the match history for the specified user (or authenticated user if omitted), ordered by `started_at DESC`. It maps opponent profile information, user-relative scores (`user_score` vs `opponent_score`), and the computed match outcome (`win`, `loss`, `aborted`) relative to the target user.
 
 Supports optional query parameters:
+- `username`: target user whose match history to view (defaults to authenticated caller; returns `404 Not Found` if user does not exist)
 - `status`: filter by match status (`finished`, `in_progress`, `abandoned`)
 - `limit`: maximum number of records to return (default 50, max 100)
 - `offset`: pagination offset (default 0)
