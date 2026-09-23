@@ -1,23 +1,56 @@
 package handlers_test
 
 import (
-	"bytes"
 	"context"
+	"crypto/rsa"
 	"dbBackend/handlers"
 	"dbBackend/internal/testutil"
 	"dbBackend/models"
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"testing"
 
 	"github.com/uptrace/bun"
 )
 
+func setupProfileTestRouter(t *testing.T) (*handlers.Handler, http.Handler, *rsa.PrivateKey) {
+	t.Helper()
+
+	privateKey, publicKey := getTestKeys(t)
+	h := handlers.NewHandler(testDB, privateKey, publicKey, "", nil)
+	mux := http.NewServeMux()
+
+	protected := handlers.NewGroup(mux, "/api/protected", h.JWTGuard)
+	protected.HandleFunc("GET /profile", h.ProfileGet)
+	protected.HandleFunc("PATCH /profile", h.ProfilePatch)
+	protected.HandleFunc("GET /profile/{username}", h.ProfileGetByUsername)
+
+	return h, mux, privateKey
+}
+
+func assertStats(t *testing.T, got models.UserStats, wantGames, wantWins, wantLosses int, wantRate float64) {
+	t.Helper()
+	if got.GamesPlayed != wantGames {
+		t.Errorf("stats.games_played: got %d, want %d", got.GamesPlayed, wantGames)
+	}
+	if got.Wins != wantWins {
+		t.Errorf("stats.wins: got %d, want %d", got.Wins, wantWins)
+	}
+	if got.Losses != wantLosses {
+		t.Errorf("stats.losses: got %d, want %d", got.Losses, wantLosses)
+	}
+	if got.WinRate != wantRate {
+		t.Errorf("stats.win_rate: got %v, want %v", got.WinRate, wantRate)
+	}
+}
+
 func TestProfileGet(t *testing.T) {
 	ctx := context.Background()
+	_, router, privKey := setupProfileTestRouter(t)
+
 	users := testutil.MakeNTestUsers(t, testDB, 2)
 	ids := testutil.UserIDs(users)
+	userAuth := makeAuthHeader(t, users[0], privKey)
 
 	t.Cleanup(func() {
 		_, _ = testDB.NewDelete().
@@ -27,85 +60,40 @@ func TestProfileGet(t *testing.T) {
 	})
 
 	// Seed 1 finished win for user 0
-	winP1 := models.ResultPlayer1Win
-	p1Score, p2Score := 5, 2
 	match := &models.MatchRecord{
 		Player1:      users[0].ID,
 		Player2:      users[1].ID,
-		Player1Score: &p1Score,
-		Player2Score: &p2Score,
+		Player1Score: testutil.Ptr(5),
+		Player2Score: testutil.Ptr(2),
 		Status:       models.StatusFinished,
-		Result:       &winP1,
+		Result:       testutil.Ptr(models.ResultPlayer1Win),
 	}
 	if _, err := testDB.NewInsert().Model(match).Exec(ctx); err != nil {
 		t.Fatalf("failed to insert test match: %v", err)
 	}
 
-	handler := handlers.NewHandler(testDB, nil, nil, "", nil)
-
-	tests := []struct {
-		name           string
-		authUserID     int64
-		expectedStatus int
-		validate       func(t *testing.T, body []byte)
-	}{
-		{
-			name:           "Success: returns own profile with email and stats",
-			authUserID:     users[0].ID,
-			expectedStatus: http.StatusOK,
-			validate: func(t *testing.T, body []byte) {
-				var p models.UserProfile
-				if err := json.Unmarshal(body, &p); err != nil {
-					t.Fatalf("failed to unmarshal response: %v", err)
-				}
-				if p.Username != users[0].Username {
-					t.Errorf("username: got %v, want %v", p.Username, users[0].Username)
-				}
-				if p.Email == nil || *p.Email != users[0].Email {
-					t.Errorf("email: got %v, want %v", p.Email, users[0].Email)
-				}
-				if p.Stats.GamesPlayed != 1 {
-					t.Errorf("stats.games_played: got %v, want 1", p.Stats.GamesPlayed)
-				}
-				if p.Stats.Wins != 1 {
-					t.Errorf("stats.wins: got %v, want 1", p.Stats.Wins)
-				}
-				if p.Stats.Losses != 0 {
-					t.Errorf("stats.losses: got %v, want 0", p.Stats.Losses)
-				}
-				if p.Stats.WinRate != 100.0 {
-					t.Errorf("stats.win_rate: got %v, want 100.0", p.Stats.WinRate)
-				}
-			},
-		},
+	rec := doTestRequest(router, http.MethodGet, "/api/protected/profile", userAuth, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d. Body: %s", rec.Code, rec.Body.String())
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, "/api/protected/profile", nil)
-			if tc.authUserID != 0 {
-				req = req.WithContext(handlers.ContextWithUserID(req.Context(), tc.authUserID))
-			}
-			rec := httptest.NewRecorder()
-
-			handler.ProfileGet(rec, req)
-
-			if rec.Code != tc.expectedStatus {
-				t.Errorf("[%s] expected status %d, got %d. Body: %s",
-					tc.name, tc.expectedStatus, rec.Code, rec.Body.String())
-			}
-
-			if tc.validate != nil {
-				tc.validate(t, rec.Body.Bytes())
-			}
-		})
+	p := testutil.DecodeJSON[models.UserProfile](t, rec)
+	if p.Username != users[0].Username {
+		t.Errorf("username: got %v, want %v", p.Username, users[0].Username)
 	}
+	if p.Email == nil || *p.Email != users[0].Email {
+		t.Errorf("email: got %v, want %v", p.Email, users[0].Email)
+	}
+	assertStats(t, p.Stats, 1, 1, 0, 100.0)
 }
 
 func TestProfileGetByUsername(t *testing.T) {
 	ctx := context.Background()
+	_, router, privKey := setupProfileTestRouter(t)
+
 	users := testutil.MakeNTestUsers(t, testDB, 2)
 	ids := testutil.UserIDs(users)
+	userAuth := makeAuthHeader(t, users[0], privKey)
 
 	t.Cleanup(func() {
 		_, _ = testDB.NewDelete().
@@ -114,34 +102,29 @@ func TestProfileGetByUsername(t *testing.T) {
 			Exec(ctx)
 	})
 
-	handler := handlers.NewHandler(testDB, nil, nil, "", nil)
-
 	tests := []struct {
 		name           string
-		callerID       int64
 		targetUsername string
 		expectedStatus int
-		validate       func(t *testing.T, body []byte)
+		validate       func(t *testing.T, rec *http.Response, body string)
 	}{
 		{
 			name:           "Success: viewing other user profile strips email",
-			callerID:       users[0].ID,
 			targetUsername: users[1].Username,
 			expectedStatus: http.StatusOK,
-			validate: func(t *testing.T, body []byte) {
+			validate: func(t *testing.T, rec *http.Response, body string) {
 				var p models.UserProfile
-				if err := json.Unmarshal(body, &p); err != nil {
-					t.Fatalf("failed to unmarshal response: %v", err)
+				if err := json.Unmarshal([]byte(body), &p); err != nil {
+					t.Fatalf("failed to unmarshal: %v", err)
 				}
 				if p.Username != users[1].Username {
 					t.Errorf("username: got %v, want %v", p.Username, users[1].Username)
 				}
 				if p.Email != nil {
-					t.Errorf("expected email to be omitted for other user, but got: %v", *p.Email)
+					t.Errorf("expected email to be omitted for other user, got: %v", *p.Email)
 				}
-				// Verify JSON string itself doesn't contain "email"
 				var raw map[string]any
-				if err := json.Unmarshal(body, &raw); err != nil {
+				if err := json.Unmarshal([]byte(body), &raw); err != nil {
 					t.Fatalf("failed to unmarshal raw map: %v", err)
 				}
 				if _, exists := raw["email"]; exists {
@@ -151,13 +134,12 @@ func TestProfileGetByUsername(t *testing.T) {
 		},
 		{
 			name:           "Success: viewing self by username includes email",
-			callerID:       users[0].ID,
 			targetUsername: users[0].Username,
 			expectedStatus: http.StatusOK,
-			validate: func(t *testing.T, body []byte) {
+			validate: func(t *testing.T, rec *http.Response, body string) {
 				var p models.UserProfile
-				if err := json.Unmarshal(body, &p); err != nil {
-					t.Fatalf("failed to unmarshal response: %v", err)
+				if err := json.Unmarshal([]byte(body), &p); err != nil {
+					t.Fatalf("failed to unmarshal: %v", err)
 				}
 				if p.Email == nil || *p.Email != users[0].Email {
 					t.Errorf("email: got %v, want %v", p.Email, users[0].Email)
@@ -166,7 +148,6 @@ func TestProfileGetByUsername(t *testing.T) {
 		},
 		{
 			name:           "Failure: non-existent username returns 404",
-			callerID:       users[0].ID,
 			targetUsername: "nonexistent_user_999",
 			expectedStatus: http.StatusNotFound,
 		},
@@ -174,14 +155,7 @@ func TestProfileGetByUsername(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, "/api/protected/profile/"+tc.targetUsername, nil)
-			req.SetPathValue("username", tc.targetUsername)
-			if tc.callerID != 0 {
-				req = req.WithContext(handlers.ContextWithUserID(req.Context(), tc.callerID))
-			}
-			rec := httptest.NewRecorder()
-
-			handler.ProfileGetByUsername(rec, req)
+			rec := doTestRequest(router, http.MethodGet, "/api/protected/profile/"+tc.targetUsername, userAuth, nil)
 
 			if rec.Code != tc.expectedStatus {
 				t.Errorf("[%s] expected status %d, got %d. Body: %s",
@@ -189,7 +163,7 @@ func TestProfileGetByUsername(t *testing.T) {
 			}
 
 			if tc.validate != nil {
-				tc.validate(t, rec.Body.Bytes())
+				tc.validate(t, rec.Result(), rec.Body.String())
 			}
 		})
 	}
@@ -197,6 +171,8 @@ func TestProfileGetByUsername(t *testing.T) {
 
 func TestProfileStats_Calculations(t *testing.T) {
 	ctx := context.Background()
+	_, router, privKey := setupProfileTestRouter(t)
+
 	users := testutil.MakeNTestUsers(t, testDB, 3)
 	ids := testutil.UserIDs(users)
 
@@ -207,12 +183,6 @@ func TestProfileStats_Calculations(t *testing.T) {
 			Exec(ctx)
 	})
 
-	winP1 := models.ResultPlayer1Win
-	winP2 := models.ResultPlayer2Win
-	aborted := models.ResultAborted
-
-	score5, score3, score1 := 5, 3, 1
-
 	// Insert diverse matches for users[0]:
 	// 1. Win as Player 1 (Finished) -> Win
 	// 2. Win as Player 2 (Finished) -> Win
@@ -220,106 +190,94 @@ func TestProfileStats_Calculations(t *testing.T) {
 	// 4. InProgress match -> Ignored
 	// 5. Abandoned match -> Ignored
 	matches := []*models.MatchRecord{
-		{Player1: users[0].ID, Player2: users[1].ID, Player1Score: &score5, Player2Score: &score3, Status: models.StatusFinished, Result: &winP1},
-		{Player1: users[1].ID, Player2: users[0].ID, Player1Score: &score1, Player2Score: &score5, Status: models.StatusFinished, Result: &winP2},
-		{Player1: users[0].ID, Player2: users[1].ID, Player1Score: &score3, Player2Score: &score5, Status: models.StatusFinished, Result: &winP2},
+		{Player1: users[0].ID, Player2: users[1].ID, Player1Score: testutil.Ptr(5), Player2Score: testutil.Ptr(3), Status: models.StatusFinished, Result: testutil.Ptr(models.ResultPlayer1Win)},
+		{Player1: users[1].ID, Player2: users[0].ID, Player1Score: testutil.Ptr(1), Player2Score: testutil.Ptr(5), Status: models.StatusFinished, Result: testutil.Ptr(models.ResultPlayer2Win)},
+		{Player1: users[0].ID, Player2: users[1].ID, Player1Score: testutil.Ptr(3), Player2Score: testutil.Ptr(5), Status: models.StatusFinished, Result: testutil.Ptr(models.ResultPlayer2Win)},
 		{Player1: users[0].ID, Player2: users[2].ID, Status: models.StatusInProgress},
-		{Player1: users[0].ID, Player2: users[2].ID, Status: models.StatusAbandoned, Result: &aborted},
+		{Player1: users[0].ID, Player2: users[2].ID, Status: models.StatusAbandoned, Result: testutil.Ptr(models.ResultAborted)},
 	}
 	if _, err := testDB.NewInsert().Model(&matches).Exec(ctx); err != nil {
 		t.Fatalf("failed to insert test matches: %v", err)
 	}
 
-	handler := handlers.NewHandler(testDB, nil, nil, "", nil)
+	tests := []struct {
+		name       string
+		user       *models.User
+		wantGames  int
+		wantWins   int
+		wantLosses int
+		wantRate   float64
+	}{
+		{
+			name:       "User with matches calculates accurate stats",
+			user:       users[0],
+			wantGames:  3,
+			wantWins:   2,
+			wantLosses: 1,
+			wantRate:   67.0,
+		},
+		{
+			name:       "User with zero matches returns zeroed stats",
+			user:       users[2],
+			wantGames:  0,
+			wantWins:   0,
+			wantLosses: 0,
+			wantRate:   0.0,
+		},
+	}
 
-	t.Run("User with matches calculates accurate stats", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/api/protected/profile", nil)
-		req = req.WithContext(handlers.ContextWithUserID(req.Context(), users[0].ID))
-		rec := httptest.NewRecorder()
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			auth := makeAuthHeader(t, tc.user, privKey)
+			rec := doTestRequest(router, http.MethodGet, "/api/protected/profile", auth, nil)
 
-		handler.ProfileGet(rec, req)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("expected status 200, got %d. Body: %s", rec.Code, rec.Body.String())
+			}
 
-		if rec.Code != http.StatusOK {
-			t.Fatalf("expected status 200, got %d. Body: %s", rec.Code, rec.Body.String())
-		}
-
-		var p models.UserProfile
-		if err := json.Unmarshal(rec.Body.Bytes(), &p); err != nil {
-			t.Fatalf("failed to unmarshal profile: %v", err)
-		}
-
-		// 3 finished games (2 wins, 1 loss) -> 67% win rate
-		if p.Stats.GamesPlayed != 3 {
-			t.Errorf("games_played: got %d, want 3", p.Stats.GamesPlayed)
-		}
-		if p.Stats.Wins != 2 {
-			t.Errorf("wins: got %d, want 2", p.Stats.Wins)
-		}
-		if p.Stats.Losses != 1 {
-			t.Errorf("losses: got %d, want 1", p.Stats.Losses)
-		}
-		if p.Stats.WinRate != 67.0 {
-			t.Errorf("win_rate: got %v, want 67.0", p.Stats.WinRate)
-		}
-	})
-
-	t.Run("User with zero matches returns zeroed stats", func(t *testing.T) {
-		// users[2] only participated in non-finished matches with users[0], so 0 finished games
-		req := httptest.NewRequest(http.MethodGet, "/api/protected/profile", nil)
-		req = req.WithContext(handlers.ContextWithUserID(req.Context(), users[2].ID))
-		rec := httptest.NewRecorder()
-
-		handler.ProfileGet(rec, req)
-
-		if rec.Code != http.StatusOK {
-			t.Fatalf("expected status 200, got %d. Body: %s", rec.Code, rec.Body.String())
-		}
-
-		var p models.UserProfile
-		if err := json.Unmarshal(rec.Body.Bytes(), &p); err != nil {
-			t.Fatalf("failed to unmarshal profile: %v", err)
-		}
-
-		if p.Stats.GamesPlayed != 0 || p.Stats.Wins != 0 || p.Stats.Losses != 0 || p.Stats.WinRate != 0.0 {
-			t.Errorf("expected all zero stats, got %+v", p.Stats)
-		}
-	})
+			p := testutil.DecodeJSON[models.UserProfile](t, rec)
+			assertStats(t, p.Stats, tc.wantGames, tc.wantWins, tc.wantLosses, tc.wantRate)
+		})
+	}
 }
 
 func TestProfilePatch(t *testing.T) {
-	users := testutil.MakeNTestUsers(t, testDB, 1)
-	handler := handlers.NewHandler(testDB, nil, nil, "", nil)
+	ctx := context.Background()
+	_, router, privKey := setupProfileTestRouter(t)
+
+	users := testutil.MakeNTestUsers(t, testDB, 2)
+	ids := testutil.UserIDs(users)
+	userAuth := makeAuthHeader(t, users[0], privKey)
+
+	t.Cleanup(func() {
+		_, _ = testDB.NewDelete().
+			Model((*models.MatchRecord)(nil)).
+			Where("player_one IN (?) OR player_two IN (?)", bun.List(ids), bun.List(ids)).
+			Exec(ctx)
+	})
 
 	tests := []struct {
 		name           string
-		callerID       int64
-		body           any
+		body           models.ProfilePatchInput
 		expectedStatus int
-		validate       func(t *testing.T, body []byte)
+		validate       func(t *testing.T, p models.UserProfile)
 	}{
 		{
-			name:     "Success: updates bio and returns updated profile with stats",
-			callerID: users[0].ID,
-			body: models.ProfilePatchInput{
-				Bio: testutil.Ptr("New bio content"),
-			},
+			name:           "Success: update bio returns profile with stats",
+			body:           models.ProfilePatchInput{Bio: testutil.Ptr("New bio content")},
 			expectedStatus: http.StatusOK,
-			validate: func(t *testing.T, body []byte) {
-				var p models.UserProfile
-				if err := json.Unmarshal(body, &p); err != nil {
-					t.Fatalf("failed to unmarshal response: %v", err)
-				}
+			validate: func(t *testing.T, p models.UserProfile) {
 				if p.Bio != "New bio content" {
 					t.Errorf("bio: got %v, want 'New bio content'", p.Bio)
 				}
 				if p.Email == nil || *p.Email != users[0].Email {
 					t.Errorf("email: got %v, want %v", p.Email, users[0].Email)
 				}
+				assertStats(t, p.Stats, 0, 0, 0, 0.0)
 			},
 		},
 		{
 			name:           "Failure: empty patch returns 400",
-			callerID:       users[0].ID,
 			body:           models.ProfilePatchInput{},
 			expectedStatus: http.StatusBadRequest,
 		},
@@ -327,15 +285,7 @@ func TestProfilePatch(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			b, _ := json.Marshal(tc.body)
-			req := httptest.NewRequest(http.MethodPatch, "/api/protected/profile", bytes.NewBuffer(b))
-			req.Header.Set("Content-Type", "application/json")
-			if tc.callerID != 0 {
-				req = req.WithContext(handlers.ContextWithUserID(req.Context(), tc.callerID))
-			}
-			rec := httptest.NewRecorder()
-
-			handler.ProfilePatch(rec, req)
+			rec := doTestRequest(router, http.MethodPatch, "/api/protected/profile", userAuth, tc.body)
 
 			if rec.Code != tc.expectedStatus {
 				t.Errorf("[%s] expected status %d, got %d. Body: %s",
@@ -343,7 +293,8 @@ func TestProfilePatch(t *testing.T) {
 			}
 
 			if tc.validate != nil {
-				tc.validate(t, rec.Body.Bytes())
+				p := testutil.DecodeJSON[models.UserProfile](t, rec)
+				tc.validate(t, p)
 			}
 		})
 	}
