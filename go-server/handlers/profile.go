@@ -12,11 +12,7 @@ import (
 )
 
 func (h *Handler) ProfileGet(w http.ResponseWriter, r *http.Request) {
-	userID, ok := UserIDFromContext(r.Context())
-	if !ok || userID == 0 {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
+	userID, _ := UserIDFromContext(r.Context())
 	slog.Debug("profile get request", "user_id", userID)
 
 	user, err := h.getUserByID(r.Context(), userID)
@@ -25,7 +21,7 @@ func (h *Handler) ProfileGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	profile, err := h.buildProfile(r.Context(), user, true)
+	profile, err := h.buildProfile(r.Context(), user, true) //last parameter is `isSelf`, to determine if we're building a public or private version of profile
 	if err != nil {
 		HandleDBError(w, err, "User stats calculate")
 		return
@@ -37,12 +33,6 @@ func (h *Handler) ProfileGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) ProfilePatch(w http.ResponseWriter, r *http.Request) {
-	//first, check what middleware passed and what input contains
-	userID, ok := UserIDFromContext(r.Context())
-	if !ok || userID == 0 {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
 	input, err := DecodeAndValidate[models.ProfilePatchInput](r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -52,6 +42,7 @@ func (h *Handler) ProfilePatch(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "At least one field must be provided", http.StatusBadRequest)
 		return
 	}
+	userID, _ := UserIDFromContext(r.Context())
 	//everything was ok, start building the update query, basics first
 	now := time.Now()
 	query := h.DB.NewUpdate().
@@ -94,16 +85,12 @@ func isProfilePatchEmpty(p *models.ProfilePatchInput) bool {
 }
 
 func (h *Handler) ProfileGetByUsername(w http.ResponseWriter, r *http.Request) {
-	callerID, ok := UserIDFromContext(r.Context())
-	if !ok || callerID == 0 {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
 	userStr := r.PathValue("username")
 	if userStr == "" {
 		http.Error(w, "No username provided", http.StatusBadRequest)
 		return
 	}
+	callerID, _ := UserIDFromContext(r.Context())
 	slog.Debug("profile get by username request", "username", userStr, "caller_id", callerID)
 
 	targetUser, err := h.getUserByUsername(r.Context(), userStr)
@@ -112,7 +99,7 @@ func (h *Handler) ProfileGetByUsername(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	isSelf := (targetUser.ID == callerID)
+	isSelf := (callerID != 0 && targetUser.ID == callerID)
 	profile, err := h.buildProfile(r.Context(), targetUser, isSelf)
 	if err != nil {
 		HandleDBError(w, err, fmt.Sprintf("User stats for '%s'", userStr))

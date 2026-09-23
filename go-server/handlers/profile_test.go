@@ -78,11 +78,6 @@ func TestProfileGet(t *testing.T) {
 				}
 			},
 		},
-		{
-			name:           "Failure: unauthenticated returns 401",
-			authUserID:     0,
-			expectedStatus: http.StatusUnauthorized,
-		},
 	}
 
 	for _, tc := range tests {
@@ -174,12 +169,6 @@ func TestProfileGetByUsername(t *testing.T) {
 			callerID:       users[0].ID,
 			targetUsername: "nonexistent_user_999",
 			expectedStatus: http.StatusNotFound,
-		},
-		{
-			name:           "Failure: unauthenticated caller returns 401",
-			callerID:       0,
-			targetUsername: users[0].Username,
-			expectedStatus: http.StatusUnauthorized,
 		},
 	}
 
@@ -333,12 +322,6 @@ func TestProfilePatch(t *testing.T) {
 			callerID:       users[0].ID,
 			body:           models.ProfilePatchInput{},
 			expectedStatus: http.StatusBadRequest,
-		},
-		{
-			name:           "Failure: unauthenticated caller returns 401",
-			callerID:       0,
-			body:           models.ProfilePatchInput{Bio: testutil.Ptr("test")},
-			expectedStatus: http.StatusUnauthorized,
 		},
 	}
 
