@@ -1,0 +1,13 @@
+$kind: http-request
+url: "{{base_url}}/api/protected/matches?status=finished&limit=2&offset=1"
+method: GET
+headers:
+  Authorization: Bearer {{vault:token_nraatika}}
+queryParams:
+  status: finished
+  limit: "2"
+  offset: "1"
+body:
+  type: text
+  content: ""
+order: 4464801669312434

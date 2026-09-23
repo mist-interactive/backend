@@ -1,0 +1,12 @@
+$kind: http-request
+name: nraatika tries to get nonexistent_user match history
+url: "{{base_url}}/api/protected/matches?username=nonexistent_user"
+method: GET
+headers:
+  Authorization: Bearer {{vault:token_nraatika}}
+queryParams:
+  username: nonexistent_user
+body:
+  type: text
+  content: ""
+order: 4493839084183561

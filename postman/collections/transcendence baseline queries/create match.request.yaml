@@ -2,7 +2,7 @@ $kind: http-request
 url: "{{base_url}}/api/internal/matches"
 method: POST
 headers:
-  x-api-key: "{{APIKey}}"
+  x-api-key: "{{vault:APIKey}}"
 body:
   type: json
   content: |-

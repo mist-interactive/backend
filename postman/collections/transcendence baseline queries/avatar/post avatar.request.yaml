@@ -1,0 +1,31 @@
+$kind: http-request
+url: "{{base_url}}/api/protected/avatar"
+method: POST
+headers:
+  Authorization: Bearer {{vault:token_nraatika}}
+queryParams:
+  - key: ""
+    value: null
+    disabled: true
+    description: ""
+body:
+  type: formdata
+  content:
+    - type: file
+      key: avatar
+      src:
+        - /home/nraatika/Downloads/HIVE_LOGO__1.png
+      description: ""
+      disabled: false
+scripts:
+  - type: afterResponse
+    code: |-
+      const response = pm.response.json();
+
+          if (response.avatarUrl) {
+              // Saves the full path (e.g., "/api/uploads/avatar_1_17265812345.png")
+              pm.environment.set("avatar_url", response.avatarUrl);
+              console.log("Saved avatar_url:", response.avatarUrl);
+          }
+    language: text/javascript
+order: 1790082350506

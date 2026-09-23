@@ -1,0 +1,18 @@
+$kind: http-request
+url: "{{base_url}}{{avatar_url}}"
+method: GET
+queryParams:
+  - key: ""
+    value: null
+    disabled: true
+    description: ""
+body:
+  type: formdata
+  content:
+    - type: file
+      key: avatar
+      src:
+        - /home/nraatika/transcendence/Master/backend/go-server/handlers/testdata/avatar.png
+      description: ""
+      disabled: false
+order: 822157648631889

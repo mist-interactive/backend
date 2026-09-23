@@ -1,0 +1,12 @@
+$kind: http-request
+name: nraatika gets mhirvasm match history
+url: "{{base_url}}/api/protected/matches?username=mhirvasm"
+method: GET
+headers:
+  Authorization: Bearer {{vault:token_nraatika}}
+queryParams:
+  username: mhirvasm
+body:
+  type: text
+  content: ""
+order: 4412080401616917
