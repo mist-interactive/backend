@@ -8,6 +8,7 @@ import (
 
 type MatchStatus string
 type MatchResult string
+type MatchOutcome string
 
 const (
 	StatusInProgress MatchStatus = "in_progress"
@@ -21,6 +22,10 @@ const (
 
 	DefaultHeartbeatTimeout = 60 * time.Second
 	DefaultSweepInterval    = 30 * time.Second
+
+	OutcomeWin     MatchOutcome = "win"
+	OutcomeLoss    MatchOutcome = "loss"
+	OutcomeAborted MatchOutcome = "aborted"
 )
 
 type MatchRecord struct {
@@ -69,4 +74,18 @@ type MatchFinishedPayload struct {
 	Status       MatchStatus `json:"status"`
 	Result       MatchResult `json:"result"`
 	WinnerID     *int64      `json:"winner_id,omitempty"`
+}
+
+type MatchHistoryResponse struct {
+	ID                int64         `json:"id" bun:"id"`
+	OpponentID        int64         `json:"opponent_id" bun:"opponent_id"`
+	OpponentUsername  string        `json:"opponent" bun:"opponent"`
+	OpponentAvatarURL *string       `json:"opponent_avatar_url" bun:"opponent_avatar_url"`
+	UserScore         *int          `json:"user_score" bun:"user_score"`
+	OpponentScore     *int          `json:"opponent_score" bun:"opponent_score"`
+	Status            MatchStatus   `json:"status" bun:"status"`
+	Result            *MatchResult  `json:"result" bun:"result"`
+	Outcome           *MatchOutcome `json:"outcome" bun:"outcome"`
+	StartedAt         time.Time     `json:"started_at" bun:"started_at"`
+	FinishedAt        *time.Time    `json:"finished_at" bun:"finished_at"`
 }

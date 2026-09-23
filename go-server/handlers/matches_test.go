@@ -3,6 +3,7 @@ package handlers_test
 import (
 	"bytes"
 	"context"
+	"crypto/rsa"
 	"dbBackend/handlers"
 	"dbBackend/internal/testutil"
 	"dbBackend/models"
@@ -669,3 +670,278 @@ func TestSweepStaleMatches(t *testing.T) {
 		assertStatus(finishedMatch.ID, models.StatusFinished)
 	})
 }
+
+func setupMatchesTestRouter(t *testing.T) (*handlers.Handler, http.Handler, *rsa.PrivateKey) {
+	t.Helper()
+
+	privateKey, publicKey := getTestKeys(t)
+	h := handlers.NewHandler(testDB, privateKey, publicKey, "", nil)
+	mux := http.NewServeMux()
+
+	protected := handlers.NewGroup(mux, "/api/protected", h.JWTGuard)
+	protected.HandleFunc("GET /matches", h.MatchHistoryGet)
+
+	return h, mux, privateKey
+}
+
+func TestMatchHistoryGet_Integration(t *testing.T) {
+	ctx := context.Background()
+	_, router, privKey := setupMatchesTestRouter(t)
+
+	users := testutil.MakeNTestUsers(t, testDB, 3)
+	ids := testutil.UserIDs(users)
+
+	userAuth := makeAuthHeader(t, users[0], privKey)
+	unrelatedAuth := makeAuthHeader(t, users[2], privKey)
+
+	t.Cleanup(func() {
+		_, _ = testDB.NewDelete().
+			Model((*models.MatchRecord)(nil)).
+			Where("player_one IN (?) OR player_two IN (?)", bun.List(ids), bun.List(ids)).
+			Exec(ctx)
+	})
+
+	now := time.Now()
+
+	// Seed matches for users[0] and users[1]:
+	// Match 1: users[0] (p1) vs users[1] (p2), finished, users[0] win (5-2), 30 mins ago
+	m1 := &models.MatchRecord{
+		Player1:      users[0].ID,
+		Player2:      users[1].ID,
+		Player1Score: testutil.Ptr(5),
+		Player2Score: testutil.Ptr(2),
+		Status:       models.StatusFinished,
+		Result:       testutil.Ptr(models.ResultPlayer1Win),
+		StartedAt:    now.Add(-30 * time.Minute),
+		FinishedAt:   testutil.Ptr(now.Add(-15 * time.Minute)),
+	}
+	if _, err := testDB.NewInsert().Model(m1).Exec(ctx); err != nil {
+		t.Fatalf("failed to insert match 1: %v", err)
+	}
+
+	// Match 2: users[1] (p1) vs users[0] (p2), finished, users[1] win (7-3) => users[0] loss, 20 mins ago
+	m2 := &models.MatchRecord{
+		Player1:      users[1].ID,
+		Player2:      users[0].ID,
+		Player1Score: testutil.Ptr(7),
+		Player2Score: testutil.Ptr(3),
+		Status:       models.StatusFinished,
+		Result:       testutil.Ptr(models.ResultPlayer1Win),
+		StartedAt:    now.Add(-20 * time.Minute),
+		FinishedAt:   testutil.Ptr(now.Add(-5 * time.Minute)),
+	}
+	if _, err := testDB.NewInsert().Model(m2).Exec(ctx); err != nil {
+		t.Fatalf("failed to insert match 2: %v", err)
+	}
+
+	// Match 3: users[0] (p1) vs users[1] (p2), abandoned, aborted, 10 mins ago
+	m3 := &models.MatchRecord{
+		Player1:    users[0].ID,
+		Player2:    users[1].ID,
+		Status:     models.StatusAbandoned,
+		Result:     testutil.Ptr(models.ResultAborted),
+		StartedAt:  now.Add(-10 * time.Minute),
+		FinishedAt: testutil.Ptr(now.Add(-1 * time.Minute)),
+	}
+	if _, err := testDB.NewInsert().Model(m3).Exec(ctx); err != nil {
+		t.Fatalf("failed to insert match 3: %v", err)
+	}
+
+	// Match 4: users[0] (p1) vs users[1] (p2), in_progress, started just now
+	m4 := &models.MatchRecord{
+		Player1:   users[0].ID,
+		Player2:   users[1].ID,
+		Status:    models.StatusInProgress,
+		StartedAt: now,
+	}
+	if _, err := testDB.NewInsert().Model(m4).Exec(ctx); err != nil {
+		t.Fatalf("failed to insert match 4: %v", err)
+	}
+
+	assertMatch := func(t *testing.T, m models.MatchHistoryResponse, wantID int64, wantOpp string, wantOutcome *models.MatchOutcome, wantUserScore, wantOppScore *int) {
+		t.Helper()
+		if m.ID != wantID {
+			t.Errorf("match ID: got %d, want %d", m.ID, wantID)
+		}
+		if wantOpp != "" && m.OpponentUsername != wantOpp {
+			t.Errorf("opponent: got %s, want %s", m.OpponentUsername, wantOpp)
+		}
+		if (wantOutcome == nil && m.Outcome != nil) || (wantOutcome != nil && (m.Outcome == nil || *m.Outcome != *wantOutcome)) {
+			t.Errorf("match %d outcome: got %v, want %v", m.ID, m.Outcome, wantOutcome)
+		}
+		if (wantUserScore == nil && m.UserScore != nil) || (wantUserScore != nil && (m.UserScore == nil || *m.UserScore != *wantUserScore)) {
+			t.Errorf("match %d user_score: got %v, want %v", m.ID, m.UserScore, wantUserScore)
+		}
+		if (wantOppScore == nil && m.OpponentScore != nil) || (wantOppScore != nil && (m.OpponentScore == nil || *m.OpponentScore != *wantOppScore)) {
+			t.Errorf("match %d opponent_score: got %v, want %v", m.ID, m.OpponentScore, wantOppScore)
+		}
+	}
+
+	tests := []struct {
+		name           string
+		authHeader     string
+		queryURL       string
+		expectedStatus int
+		validate       func(t *testing.T, rec *httptest.ResponseRecorder)
+	}{
+		{
+			name:           "Failure: Missing Bearer token returns 401 Unauthorized",
+			authHeader:     "",
+			queryURL:       "/api/protected/matches",
+			expectedStatus: http.StatusUnauthorized,
+		},
+		{
+			name:           "Failure: Invalid Bearer token returns 401 Unauthorized",
+			authHeader:     "Bearer invalid.jwt.token",
+			queryURL:       "/api/protected/matches",
+			expectedStatus: http.StatusUnauthorized,
+		},
+		{
+			name:           "Success: Empty history returns empty JSON array",
+			authHeader:     unrelatedAuth,
+			queryURL:       "/api/protected/matches",
+			expectedStatus: http.StatusOK,
+			validate: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				history := testutil.DecodeJSON[[]models.MatchHistoryResponse](t, rec)
+				if len(history) != 0 {
+					t.Errorf("expected 0 matches, got %d", len(history))
+				}
+				if body := rec.Body.String(); body != "[]\n" && body != "[]" {
+					t.Errorf("expected raw JSON '[]', got %q", body)
+				}
+			},
+		},
+		{
+			name:           "Success: All matches ordered by started_at DESC with correct relative perspective",
+			queryURL:       "/api/protected/matches",
+			expectedStatus: http.StatusOK,
+			validate: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				history := testutil.DecodeJSON[[]models.MatchHistoryResponse](t, rec)
+				if len(history) != 4 {
+					t.Fatalf("expected 4 matches, got %d", len(history))
+				}
+
+				// Match 4: in_progress
+				assertMatch(t, history[0], m4.ID, users[1].Username, nil, nil, nil)
+				if history[0].Status != models.StatusInProgress {
+					t.Errorf("expected status %s, got %s", models.StatusInProgress, history[0].Status)
+				}
+
+				// Match 3: aborted
+				assertMatch(t, history[1], m3.ID, users[1].Username, testutil.Ptr(models.OutcomeAborted), nil, nil)
+
+				// Match 2: users[1] was player 1 (7), users[0] was player 2 (3) -> users[0] lost 3-7
+				assertMatch(t, history[2], m2.ID, users[1].Username, testutil.Ptr(models.OutcomeLoss), testutil.Ptr(3), testutil.Ptr(7))
+
+				// Match 1: users[0] was player 1 (5), users[1] was player 2 (2) -> users[0] won 5-2
+				assertMatch(t, history[3], m1.ID, users[1].Username, testutil.Ptr(models.OutcomeWin), testutil.Ptr(5), testutil.Ptr(2))
+			},
+		},
+		{
+			name:           "Success: Filter by status finished",
+			queryURL:       "/api/protected/matches?status=finished",
+			expectedStatus: http.StatusOK,
+			validate: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				history := testutil.DecodeJSON[[]models.MatchHistoryResponse](t, rec)
+				if len(history) != 2 {
+					t.Fatalf("expected 2 finished matches, got %d", len(history))
+				}
+				for _, m := range history {
+					if m.Status != models.StatusFinished {
+						t.Errorf("expected status %s, got %s", models.StatusFinished, m.Status)
+					}
+				}
+			},
+		},
+		{
+			name:           "Success: Filter by status abandoned",
+			queryURL:       "/api/protected/matches?status=abandoned",
+			expectedStatus: http.StatusOK,
+			validate: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				history := testutil.DecodeJSON[[]models.MatchHistoryResponse](t, rec)
+				if len(history) != 1 {
+					t.Fatalf("expected 1 abandoned match, got %d", len(history))
+				}
+				if history[0].ID != m3.ID {
+					t.Errorf("expected match ID %d, got %d", m3.ID, history[0].ID)
+				}
+			},
+		},
+		{
+			name:           "Success: Filter by status in_progress",
+			queryURL:       "/api/protected/matches?status=in_progress",
+			expectedStatus: http.StatusOK,
+			validate: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				history := testutil.DecodeJSON[[]models.MatchHistoryResponse](t, rec)
+				if len(history) != 1 {
+					t.Fatalf("expected 1 in_progress match, got %d", len(history))
+				}
+				if history[0].ID != m4.ID {
+					t.Errorf("expected match ID %d, got %d", m4.ID, history[0].ID)
+				}
+			},
+		},
+		{
+			name:           "Success: Pagination limit and offset",
+			queryURL:       "/api/protected/matches?limit=1&offset=1",
+			expectedStatus: http.StatusOK,
+			validate: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				history := testutil.DecodeJSON[[]models.MatchHistoryResponse](t, rec)
+				if len(history) != 1 {
+					t.Fatalf("expected 1 match with limit=1, got %d", len(history))
+				}
+				if history[0].ID != m3.ID {
+					t.Errorf("expected match ID %d, got %d", m3.ID, history[0].ID)
+				}
+			},
+		},
+		{
+			name:           "Success: Query match history of another user by username reflects their perspective",
+			queryURL:       "/api/protected/matches?username=" + users[1].Username,
+			expectedStatus: http.StatusOK,
+			validate: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				history := testutil.DecodeJSON[[]models.MatchHistoryResponse](t, rec)
+				if len(history) != 4 {
+					t.Fatalf("expected 4 matches, got %d", len(history))
+				}
+
+				// Match 2: users[1] was player 1 (7), users[0] was player 2 (3) -> from users[1]'s perspective: win 7-3
+				assertMatch(t, history[2], m2.ID, users[0].Username, testutil.Ptr(models.OutcomeWin), testutil.Ptr(7), testutil.Ptr(3))
+
+				// Match 1: users[0] was player 1 (5), users[1] was player 2 (2) -> from users[1]'s perspective: loss 2-5
+				assertMatch(t, history[3], m1.ID, users[0].Username, testutil.Ptr(models.OutcomeLoss), testutil.Ptr(2), testutil.Ptr(5))
+			},
+		},
+		{
+			name:           "Success: Query match history of existing user with zero matches returns empty JSON array",
+			queryURL:       "/api/protected/matches?username=" + users[2].Username,
+			expectedStatus: http.StatusOK,
+			validate: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				history := testutil.DecodeJSON[[]models.MatchHistoryResponse](t, rec)
+				if len(history) != 0 {
+					t.Errorf("expected 0 matches, got %d", len(history))
+				}
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			auth := tc.authHeader
+			if auth == "" && tc.expectedStatus == http.StatusOK {
+				auth = userAuth
+			}
+			rec := doTestRequest(router, http.MethodGet, tc.queryURL, auth, nil)
+
+			if rec.Code != tc.expectedStatus {
+				t.Errorf("[%s] expected status %d, got %d. Body: %s",
+					tc.name, tc.expectedStatus, rec.Code, rec.Body.String())
+			}
+
+			if tc.validate != nil {
+				tc.validate(t, rec)
+			}
+		})
+	}
+}
+
