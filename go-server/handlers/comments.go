@@ -133,3 +133,57 @@ func (h *Handler) ProfileCommentCreate(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(resp)
 }
+
+// ProfileCommentDelete handles DELETE /api/protected/profile/{username}/comments/{id}.
+// Only the profile owner (moderation) or the original author can delete the comment.
+func (h *Handler) ProfileCommentDelete(w http.ResponseWriter, r *http.Request) {
+	callerID, _ := UserIDFromContext(r.Context())
+
+	username := r.PathValue("username")
+	if username == "" {
+		http.Error(w, "No username provided", http.StatusBadRequest)
+		return
+	}
+
+	targetUser, err := h.getUserByUsername(r.Context(), username)
+	if err != nil {
+		HandleDBError(w, err, fmt.Sprintf("User '%s'", username))
+		return
+	}
+
+	commentID, err := ParsePathInt64(r, "id")
+	if err != nil {
+		slog.Warn("comment delete rejected: invalid comment ID", "error", err)
+		http.Error(w, "Invalid comment ID", http.StatusBadRequest)
+		return
+	}
+
+	comment := new(models.Comment)
+	err = h.DB.NewSelect().
+		Model(comment).
+		Where("id = ? AND owner_id = ?", commentID, targetUser.ID).
+		Scan(r.Context())
+	if err != nil {
+		HandleDBError(w, err, "Comment")
+		return
+	}
+
+	if callerID != comment.OwnerID && callerID != comment.PosterID {
+		slog.Warn("comment delete forbidden: caller is neither owner nor author",
+			"comment_id", commentID, "caller_id", callerID, "owner_id", comment.OwnerID, "poster_id", comment.PosterID)
+		http.Error(w, "You do not have permission to delete this comment", http.StatusForbidden)
+		return
+	}
+
+	_, err = h.DB.NewDelete().
+		Model(comment).
+		Where("id = ?", commentID).
+		Exec(r.Context())
+	if err != nil {
+		HandleDBError(w, err, "Deleting comment")
+		return
+	}
+
+	slog.Info("profile comment deleted", "comment_id", commentID, "deleted_by", callerID)
+	w.WriteHeader(http.StatusNoContent)
+}

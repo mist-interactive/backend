@@ -206,3 +206,121 @@ func TestProfileCommentCreate(t *testing.T) {
 		})
 	}
 }
+
+func TestProfileCommentDelete(t *testing.T) {
+	ctx := context.Background()
+	privKey, pubKey := getTestKeys(t)
+	router := http.NewServeMux()
+	handlers.NewHandler(testDB, privKey, pubKey, "", nil).RegisterRoutes(router)
+
+	users := testutil.MakeNTestUsers(t, testDB, 3)
+	ids := testutil.UserIDs(users)
+	ownerAuth := makeAuthHeader(t, users[0], privKey)
+	posterAuth := makeAuthHeader(t, users[1], privKey)
+	unrelatedAuth := makeAuthHeader(t, users[2], privKey)
+
+	t.Cleanup(func() {
+		_, _ = testDB.NewDelete().
+			Model((*models.Comment)(nil)).
+			Where("owner_id IN (?) OR poster_id IN (?)", bun.List(ids), bun.List(ids)).
+			Exec(ctx)
+	})
+
+	// Seed comments to delete
+	c1 := &models.Comment{OwnerID: users[0].ID, PosterID: users[1].ID, Content: "To be deleted by author"}
+	c2 := &models.Comment{OwnerID: users[0].ID, PosterID: users[1].ID, Content: "To be deleted by wall owner"}
+	c3 := &models.Comment{OwnerID: users[0].ID, PosterID: users[1].ID, Content: "To remain after forbidden attempt"}
+	for _, c := range []*models.Comment{c1, c2, c3} {
+		if _, err := testDB.NewInsert().Model(c).Exec(ctx); err != nil {
+			t.Fatalf("failed to insert seed comment: %v", err)
+		}
+	}
+
+	nonExistentID := fmt.Sprintf("%d", testutil.NonexistentID[models.Comment](t, testDB))
+
+	tests := []struct {
+		name           string
+		authHeader     string
+		targetUsername string
+		targetID       string
+		expectedStatus int
+	}{
+		{
+			name:           "Success: Author can delete own comment",
+			authHeader:     posterAuth,
+			targetUsername: users[0].Username,
+			targetID:       fmt.Sprintf("%d", c1.ID),
+			expectedStatus: http.StatusNoContent,
+		},
+		{
+			name:           "Success: Profile owner can delete comment on their wall (moderation)",
+			authHeader:     ownerAuth,
+			targetUsername: users[0].Username,
+			targetID:       fmt.Sprintf("%d", c2.ID),
+			expectedStatus: http.StatusNoContent,
+		},
+		{
+			name:           "Failure: Unrelated user cannot delete comment",
+			authHeader:     unrelatedAuth,
+			targetUsername: users[0].Username,
+			targetID:       fmt.Sprintf("%d", c3.ID),
+			expectedStatus: http.StatusForbidden,
+		},
+		{
+			name:           "Failure: Comment not found",
+			authHeader:     posterAuth,
+			targetUsername: users[0].Username,
+			targetID:       nonExistentID,
+			expectedStatus: http.StatusNotFound,
+		},
+		{
+			name:           "Failure: Target profile not found",
+			authHeader:     posterAuth,
+			targetUsername: "non_existent_user_9999",
+			targetID:       fmt.Sprintf("%d", c3.ID),
+			expectedStatus: http.StatusNotFound,
+		},
+		{
+			name:           "Failure: Comment belongs to different profile wall",
+			authHeader:     posterAuth,
+			targetUsername: users[1].Username, // c3 is on users[0]'s wall
+			targetID:       fmt.Sprintf("%d", c3.ID),
+			expectedStatus: http.StatusNotFound,
+		},
+		{
+			name:           "Failure: Invalid comment ID format",
+			authHeader:     posterAuth,
+			targetUsername: users[0].Username,
+			targetID:       "invalid_id",
+			expectedStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			path := fmt.Sprintf("/api/protected/profile/%s/comments/%s", tc.targetUsername, tc.targetID)
+			rec := doTestRequest(router, http.MethodDelete, path, tc.authHeader, nil)
+			if rec.Code != tc.expectedStatus {
+				t.Fatalf("[%s] expected status %d, got %d. Body: %s", tc.name, tc.expectedStatus, rec.Code, rec.Body.String())
+			}
+		})
+	}
+
+	// Verify c1 and c2 are gone, while c3 still exists
+	var count int
+	count, err := testDB.NewSelect().
+		Model((*models.Comment)(nil)).
+		Where("id IN (?)", bun.List([]int64{c1.ID, c2.ID})).
+		Count(ctx)
+	if err != nil || count != 0 {
+		t.Errorf("expected deleted comments c1 and c2 to be gone, count=%d err=%v", count, err)
+	}
+
+	exists, err := testDB.NewSelect().
+		Model((*models.Comment)(nil)).
+		Where("id = ?", c3.ID).
+		Exists(ctx)
+	if err != nil || !exists {
+		t.Errorf("expected c3 to still exist in DB, exists=%v err=%v", exists, err)
+	}
+}
