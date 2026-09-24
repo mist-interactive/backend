@@ -18,7 +18,7 @@ func SeedDevDatabase(ctx context.Context, db *bun.DB) error {
 	}
 	if exists {
 		log.Println("Database already populated, skipping dev seeding.")
-		return nil
+		return SeedDevComments(ctx, db)
 	}
 
 	hash, _ := bcrypt.GenerateFromPassword([]byte("password123"), bcrypt.DefaultCost)
@@ -146,5 +146,66 @@ func SeedDevDatabase(ctx context.Context, db *bun.DB) error {
 	}
 
 	log.Printf("Successfully seeded %d users, %d friendships, and %d matches!", len(users), len(friendships), len(matches))
+	return SeedDevComments(ctx, db)
+}
+
+func SeedDevComments(ctx context.Context, db *bun.DB) error {
+	exists, err := db.NewSelect().Model((*models.Comment)(nil)).Exists(ctx)
+	if err != nil {
+		return err
+	}
+	if exists {
+		log.Println("Comments already populated, skipping comment seeding.")
+		return nil
+	}
+
+	namedUsernames := []string{"nraatika", "mhirvasm", "jpelline", "anpollan", "zfarah"}
+	var namedUsers []models.User
+	err = db.NewSelect().
+		Model(&namedUsers).
+		Where("username IN (?)", bun.List(namedUsernames)).
+		Order("id ASC").
+		Scan(ctx)
+	if err != nil {
+		return err
+	}
+	if len(namedUsers) < 2 {
+		log.Println("Not enough named users found to seed comments.")
+		return nil
+	}
+
+	sampleComments := []string{
+		"First!",
+		"LLLoser",
+		"GG",
+		"you up?",
+		"Lucky",
+		"FU",
+		"Ysvaaa",
+	}
+
+	var comments []models.Comment
+	now := time.Now()
+	commentIdx := 0
+
+	for i := range namedUsers {
+		for j := range namedUsers {
+			createdAt := now.Add(-time.Duration(len(namedUsers)*(len(namedUsers)-1)-commentIdx) * 2 * time.Hour)
+			comments = append(comments, models.Comment{
+				OwnerID:   namedUsers[i].ID,
+				PosterID:  namedUsers[j].ID,
+				Content:   sampleComments[commentIdx%len(sampleComments)],
+				CreatedAt: createdAt,
+			})
+			commentIdx++
+		}
+	}
+
+	_, err = db.NewInsert().Model(&comments).Exec(ctx)
+	if err != nil {
+		return err
+	}
+
+	log.Printf("Successfully seeded %d comments across %d named users!", len(comments), len(namedUsers))
 	return nil
 }
