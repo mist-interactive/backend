@@ -351,6 +351,38 @@ func TestUserActiveMatchGet(t *testing.T) {
 			expectedStatus: http.StatusNotFound,
 		},
 		{
+			name: "Failure: Stale match in progress is swept to abandoned, returning 404",
+			setup: func(t *testing.T) string {
+				staleHeartbeat := time.Now().Add(-2 * time.Minute)
+				staleMatch := &models.MatchRecord{
+					Player1:         users[0].ID,
+					Player2:         users[1].ID,
+					Status:          models.StatusInProgress,
+					LastHeartbeatAt: staleHeartbeat,
+				}
+				if _, err := testDB.NewInsert().Model(staleMatch).Exec(ctx); err != nil {
+					t.Fatalf("failed to insert stale match: %v", err)
+				}
+				t.Cleanup(func() {
+					_, _ = testDB.NewDelete().Model((*models.MatchRecord)(nil)).Where("id = ?", staleMatch.ID).Exec(ctx)
+				})
+				return fmt.Sprintf("%d", users[0].ID)
+			},
+			expectedStatus: http.StatusNotFound,
+			validate: func(t *testing.T, body []byte) {
+				count, err := testDB.NewSelect().
+					Model((*models.MatchRecord)(nil)).
+					Where("player_one = ? AND status = ?", users[0].ID, models.StatusAbandoned).
+					Count(ctx)
+				if err != nil {
+					t.Fatalf("failed to query db for swept match: %v", err)
+				}
+				if count == 0 {
+					t.Errorf("expected match to be swept to abandoned, but none found")
+				}
+			},
+		},
+		{
 			name: "Failure: Invalid user ID in path",
 			setup: func(t *testing.T) string {
 				return "invalid-id"
@@ -385,12 +417,13 @@ func TestMatchCreate(t *testing.T) {
 	users := testutil.MakeNTestUsers(t, testDB, 3)
 	ids := testutil.UserIDs(users)
 
-	t.Cleanup(func() {
+	resetMatches := func() {
 		_, _ = testDB.NewDelete().
 			Model((*models.MatchRecord)(nil)).
 			Where("player_one IN (?) OR player_two IN (?)", bun.List(ids), bun.List(ids)).
 			Exec(ctx)
-	})
+	}
+	t.Cleanup(resetMatches)
 
 	handler := handlers.NewHandler(testDB, nil, nil, "", nil)
 
@@ -418,9 +451,6 @@ func TestMatchCreate(t *testing.T) {
 				if _, err := testDB.NewInsert().Model(match).Exec(ctx); err != nil {
 					t.Fatalf("failed to insert active match: %v", err)
 				}
-				t.Cleanup(func() {
-					_, _ = testDB.NewDelete().Model((*models.MatchRecord)(nil)).Where("id = ?", match.ID).Exec(ctx)
-				})
 			},
 			player1:        users[0].Username,
 			player2:        users[1].Username,
@@ -429,28 +459,42 @@ func TestMatchCreate(t *testing.T) {
 		{
 			name: "Success: Allowed when prior match is finished",
 			setup: func(t *testing.T) {
-				result := models.ResultPlayer1Win
 				finished := &models.MatchRecord{
 					Player1: users[0].ID,
 					Player2: users[1].ID,
 					Status:  models.StatusFinished,
-					Result:  &result,
+					Result:  testutil.Ptr(models.ResultPlayer1Win),
 				}
 				if _, err := testDB.NewInsert().Model(finished).Exec(ctx); err != nil {
 					t.Fatalf("failed to insert finished match: %v", err)
 				}
-				t.Cleanup(func() {
-					_, _ = testDB.NewDelete().Model((*models.MatchRecord)(nil)).Where("id = ?", finished.ID).Exec(ctx)
-				})
 			},
 			player1:        users[0].Username,
 			player2:        users[1].Username,
+			expectedStatus: http.StatusCreated,
+		},
+		{
+			name: "Success: Allowed when prior match is stale (swept to abandoned)",
+			setup: func(t *testing.T) {
+				stale := &models.MatchRecord{
+					Player1:         users[0].ID,
+					Player2:         users[1].ID,
+					Status:          models.StatusInProgress,
+					LastHeartbeatAt: time.Now().Add(-2 * time.Minute),
+				}
+				if _, err := testDB.NewInsert().Model(stale).Exec(ctx); err != nil {
+					t.Fatalf("failed to insert stale match: %v", err)
+				}
+			},
+			player1:        users[0].Username,
+			player2:        users[2].Username,
 			expectedStatus: http.StatusCreated,
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			resetMatches()
 			if tc.setup != nil {
 				tc.setup(t)
 			}
@@ -464,23 +508,167 @@ func TestMatchCreate(t *testing.T) {
 
 			handler.MatchCreate(rec, req)
 
-			if rec.Code == http.StatusCreated {
-				var resp struct {
-					ID int64 `json:"id"`
-				}
-				if err := json.Unmarshal(rec.Body.Bytes(), &resp); err == nil && resp.ID > 0 {
-					t.Cleanup(func() {
-						_, _ = testDB.NewDelete().Model((*models.MatchRecord)(nil)).Where("id = ?", resp.ID).Exec(ctx)
-					})
-				}
-			}
-
 			if rec.Code != tc.expectedStatus {
 				t.Errorf("[%s] expected status %d, got %d. Body: %s",
 					tc.name, tc.expectedStatus, rec.Code, rec.Body.String())
 			}
 		})
 	}
+}
+
+func TestMatchHeartbeat(t *testing.T) {
+	ctx := context.Background()
+	users := testutil.MakeNTestUsers(t, testDB, 2)
+	ids := testutil.UserIDs(users)
+
+	t.Cleanup(func() {
+		_, _ = testDB.NewDelete().
+			Model((*models.MatchRecord)(nil)).
+			Where("player_one IN (?) OR player_two IN (?)", bun.List(ids), bun.List(ids)).
+			Exec(ctx)
+	})
+
+	handler := handlers.NewHandler(testDB, nil, nil, "", nil)
+
+	tests := []struct {
+		name           string
+		status         models.MatchStatus
+		result         *models.MatchResult
+		expectedStatus int
+		verifyUpdate   bool
+	}{
+		{
+			name:           "Success: Heartbeat updates last_heartbeat_at for active match",
+			status:         models.StatusInProgress,
+			expectedStatus: http.StatusNoContent,
+			verifyUpdate:   true,
+		},
+		{
+			name:           "Failure: Match already finished",
+			status:         models.StatusFinished,
+			result:         testutil.Ptr(models.ResultPlayer1Win),
+			expectedStatus: http.StatusConflict,
+		},
+		{
+			name:           "Failure: Match already abandoned",
+			status:         models.StatusAbandoned,
+			result:         testutil.Ptr(models.ResultAborted),
+			expectedStatus: http.StatusConflict,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			past := time.Now().Add(-10 * time.Second)
+			match := &models.MatchRecord{
+				Player1:         users[0].ID,
+				Player2:         users[1].ID,
+				Status:          tc.status,
+				Result:          tc.result,
+				LastHeartbeatAt: past,
+			}
+			if _, err := testDB.NewInsert().Model(match).Exec(ctx); err != nil {
+				t.Fatalf("failed to insert match: %v", err)
+			}
+
+			req := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/internal/matches/%d/heartbeat", match.ID), nil)
+			req.SetPathValue("id", fmt.Sprintf("%d", match.ID))
+			rec := httptest.NewRecorder()
+
+			handler.MatchHeartbeat(rec, req)
+
+			if rec.Code != tc.expectedStatus {
+				t.Errorf("[%s] expected status %d, got %d. Server response: %q",
+					tc.name, tc.expectedStatus, rec.Code, rec.Body.String())
+			}
+
+			if tc.verifyUpdate {
+				var updated models.MatchRecord
+				if err := testDB.NewSelect().Model(&updated).Where("id = ?", match.ID).Scan(ctx); err != nil {
+					t.Fatalf("failed to fetch updated match: %v", err)
+				}
+				if !updated.LastHeartbeatAt.After(past) {
+					t.Errorf("expected last_heartbeat_at (%v) to be after previous timestamp (%v)",
+						updated.LastHeartbeatAt, past)
+				}
+			}
+		})
+	}
+}
+
+func TestSweepStaleMatches(t *testing.T) {
+	ctx := context.Background()
+	users := testutil.MakeNTestUsers(t, testDB, 3)
+	ids := testutil.UserIDs(users)
+
+	t.Cleanup(func() {
+		_, _ = testDB.NewDelete().
+			Model((*models.MatchRecord)(nil)).
+			Where("player_one IN (?) OR player_two IN (?)", bun.List(ids), bun.List(ids)).
+			Exec(ctx)
+	})
+
+	handler := handlers.NewHandler(testDB, nil, nil, "", nil)
+
+	t.Run("Sweeps only stale in-progress matches", func(t *testing.T) {
+		staleMatch := &models.MatchRecord{
+			Player1:         users[0].ID,
+			Player2:         users[1].ID,
+			Status:          models.StatusInProgress,
+			LastHeartbeatAt: time.Now().Add(-2 * time.Minute),
+		}
+		freshMatch := &models.MatchRecord{
+			Player1:         users[1].ID,
+			Player2:         users[2].ID,
+			Status:          models.StatusInProgress,
+			LastHeartbeatAt: time.Now(),
+		}
+		finishedMatch := &models.MatchRecord{
+			Player1:         users[0].ID,
+			Player2:         users[2].ID,
+			Status:          models.StatusFinished,
+			Result:          testutil.Ptr(models.ResultPlayer1Win),
+			LastHeartbeatAt: time.Now().Add(-2 * time.Minute),
+		}
+
+		matches := []*models.MatchRecord{staleMatch, freshMatch, finishedMatch}
+		if _, err := testDB.NewInsert().Model(&matches).Exec(ctx); err != nil {
+			t.Fatalf("failed to insert test matches: %v", err)
+		}
+
+		swept, err := handler.SweepStaleMatches(ctx, 60*time.Second)
+		if err != nil {
+			t.Fatalf("SweepStaleMatches failed: %v", err)
+		}
+
+		if len(swept) != 1 {
+			t.Fatalf("got %d swept matches, want 1", len(swept))
+		}
+		if swept[0].ID != staleMatch.ID {
+			t.Errorf("got swept match ID %d, want %d", swept[0].ID, staleMatch.ID)
+		}
+		if swept[0].Status != models.StatusAbandoned {
+			t.Errorf("got status %v, want %v", swept[0].Status, models.StatusAbandoned)
+		}
+		if swept[0].Result == nil || *swept[0].Result != models.ResultAborted {
+			t.Errorf("got result %v, want %v", swept[0].Result, models.ResultAborted)
+		}
+
+		// Verify DB state for all 3 matches
+		assertStatus := func(id int64, want models.MatchStatus) {
+			var m models.MatchRecord
+			if err := testDB.NewSelect().Model(&m).Where("id = ?", id).Scan(ctx); err != nil {
+				t.Fatalf("failed to query match %d: %v", id, err)
+			}
+			if m.Status != want {
+				t.Errorf("match %d status: got %v, want %v", id, m.Status, want)
+			}
+		}
+
+		assertStatus(staleMatch.ID, models.StatusAbandoned)
+		assertStatus(freshMatch.ID, models.StatusInProgress)
+		assertStatus(finishedMatch.ID, models.StatusFinished)
+	})
 }
 
 func setupMatchesTestRouter(t *testing.T) (*handlers.Handler, http.Handler, *rsa.PrivateKey) {

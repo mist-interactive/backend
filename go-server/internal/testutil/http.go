@@ -8,10 +8,6 @@ import (
 	"testing"
 )
 
-// Ptr returns a pointer to the passed value. Convenient for constructing test models with pointer fields.
-func Ptr[T any](v T) *T {
-	return &v
-}
 
 // DecodeJSON unmarshals a test HTTP response body into target type T.
 func DecodeJSON[T any](t testing.TB, rec *httptest.ResponseRecorder) T {

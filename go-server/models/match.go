@@ -20,6 +20,9 @@ const (
 	ResultDraw       MatchResult = "draw"
 	ResultAborted    MatchResult = "aborted"
 
+	DefaultHeartbeatTimeout = 60 * time.Second
+	DefaultSweepInterval    = 30 * time.Second
+
 	OutcomeWin     MatchOutcome = "win"
 	OutcomeLoss    MatchOutcome = "loss"
 	OutcomeAborted MatchOutcome = "aborted"
@@ -35,8 +38,9 @@ type MatchRecord struct {
 	Player2Score *int         `json:"player_two_score" bun:"player_two_score"`
 	Status       MatchStatus  `json:"status" bun:"status,notnull"`
 	Result       *MatchResult `json:"result" bun:"result"`
-	StartedAt    time.Time    `json:"started_at" bun:"started_at,default:current_timestamp"`
-	FinishedAt   *time.Time   `json:"finished_at" bun:"finished_at"`
+	StartedAt       time.Time    `json:"started_at" bun:"started_at,default:current_timestamp"`
+	FinishedAt      *time.Time   `json:"finished_at" bun:"finished_at"`
+	LastHeartbeatAt time.Time    `json:"last_heartbeat_at" bun:"last_heartbeat_at,default:current_timestamp"`
 }
 
 type MatchCreateInput struct {
