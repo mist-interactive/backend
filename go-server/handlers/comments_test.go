@@ -7,6 +7,7 @@ import (
 	"dbBackend/models"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/uptrace/bun"
@@ -112,6 +113,95 @@ func TestProfileCommentsGet(t *testing.T) {
 			if tc.expectedStatus == http.StatusOK {
 				resp := testutil.DecodeJSON[models.PaginatedCommentsResponse](t, rec)
 				assertComments(t, resp, tc.wantHasMore, tc.wantComments...)
+			}
+		})
+	}
+}
+
+func TestProfileCommentCreate(t *testing.T) {
+	ctx := context.Background()
+	privKey, pubKey := getTestKeys(t)
+	router := http.NewServeMux()
+	handlers.NewHandler(testDB, privKey, pubKey, "", nil).RegisterRoutes(router)
+
+	users := testutil.MakeNTestUsers(t, testDB, 2)
+	ids := testutil.UserIDs(users)
+	posterAuth := makeAuthHeader(t, users[1], privKey)
+	ownerAuth := makeAuthHeader(t, users[0], privKey)
+
+	t.Cleanup(func() {
+		_, _ = testDB.NewDelete().
+			Model((*models.Comment)(nil)).
+			Where("owner_id IN (?) OR poster_id IN (?)", bun.List(ids), bun.List(ids)).
+			Exec(ctx)
+	})
+
+	tests := []struct {
+		name           string
+		authHeader     string
+		targetUsername string
+		body           any
+		expectedStatus int
+		wantOwnerID    int64
+		wantPoster     *models.User
+		wantContent    string
+	}{
+		{
+			name:           "Success: User posts comment on another user's wall",
+			authHeader:     posterAuth,
+			targetUsername: users[0].Username,
+			body:           models.CommentCreateInput{Content: "Hello from user 1!"},
+			expectedStatus: http.StatusCreated,
+			wantOwnerID:    users[0].ID,
+			wantPoster:     users[1],
+			wantContent:    "Hello from user 1!",
+		},
+		{
+			name:           "Success: Owner posts comment on own wall",
+			authHeader:     ownerAuth,
+			targetUsername: users[0].Username,
+			body:           models.CommentCreateInput{Content: "Note to self"},
+			expectedStatus: http.StatusCreated,
+			wantOwnerID:    users[0].ID,
+			wantPoster:     users[0],
+			wantContent:    "Note to self",
+		},
+		{
+			name:           "Failure: Target user does not exist",
+			authHeader:     posterAuth,
+			targetUsername: "non_existent_user_9999",
+			body:           models.CommentCreateInput{Content: "Hello into the void"},
+			expectedStatus: http.StatusNotFound,
+		},
+		{
+			name:           "Failure: Empty or whitespace-only content",
+			authHeader:     posterAuth,
+			targetUsername: users[0].Username,
+			body:           models.CommentCreateInput{Content: "   "},
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "Failure: Content exceeds 1000 characters",
+			authHeader:     posterAuth,
+			targetUsername: users[0].Username,
+			body:           models.CommentCreateInput{Content: strings.Repeat("a", 1001)},
+			expectedStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			path := "/api/protected/profile/" + tc.targetUsername + "/comments"
+			rec := doTestRequest(router, http.MethodPost, path, tc.authHeader, tc.body)
+			if rec.Code != tc.expectedStatus {
+				t.Fatalf("[%s] expected status %d, got %d. Body: %s", tc.name, tc.expectedStatus, rec.Code, rec.Body.String())
+			}
+			if tc.expectedStatus == http.StatusCreated {
+				resp := testutil.DecodeJSON[models.CommentResponse](t, rec)
+				if resp.ID == 0 || resp.OwnerID != tc.wantOwnerID || resp.PosterID != tc.wantPoster.ID ||
+					resp.PosterUsername != tc.wantPoster.Username || resp.Content != tc.wantContent {
+					t.Errorf("unexpected comment response: %+v", resp)
+				}
 			}
 		})
 	}

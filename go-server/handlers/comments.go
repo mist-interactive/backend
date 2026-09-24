@@ -4,6 +4,7 @@ import (
 	"dbBackend/models"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 )
 
@@ -66,5 +67,69 @@ func (h *Handler) ProfileCommentsGet(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(resp)
+}
+
+// ProfileCommentCreate handles POST /api/protected/profile/{username}/comments.
+// Any authenticated user can post a comment on another user's profile wall, or on their own wall.
+func (h *Handler) ProfileCommentCreate(w http.ResponseWriter, r *http.Request) {
+	callerID, _ := UserIDFromContext(r.Context())
+
+	username := r.PathValue("username")
+	if username == "" {
+		http.Error(w, "No username provided", http.StatusBadRequest)
+		return
+	}
+
+	targetUser, err := h.getUserByUsername(r.Context(), username)
+	if err != nil {
+		HandleDBError(w, err, fmt.Sprintf("User '%s'", username))
+		return
+	}
+
+	input, err := DecodeAndValidate[models.CommentCreateInput](r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	comment := &models.Comment{
+		OwnerID:  targetUser.ID,
+		PosterID: callerID,
+		Content:  input.Content,
+	}
+
+	err = h.DB.NewInsert().
+		Model(comment).
+		Returning("*").
+		Scan(r.Context())
+	if err != nil {
+		HandleDBError(w, err, "Creating profile comment")
+		return
+	}
+
+	resp := models.CommentResponse{
+		ID:              comment.ID,
+		OwnerID:         comment.OwnerID,
+		PosterID:        comment.PosterID,
+		PosterUsername:  targetUser.Username, //by default, use a known username/avatar
+		PosterAvatarURL: targetUser.AvatarURL,
+		Content:         comment.Content,
+		CreatedAt:       comment.CreatedAt,
+	}
+
+	if callerID != targetUser.ID { //if it's not a self-comment, update with the correct values
+		caller, err := h.getUserByID(r.Context(), callerID)
+		if err != nil {
+			HandleDBError(w, err, "Fetching poster details")
+			return
+		}
+		resp.PosterUsername = caller.Username
+		resp.PosterAvatarURL = caller.AvatarURL
+	}
+
+	slog.Info("profile comment created", "comment_id", comment.ID, "owner", targetUser.Username, "poster", resp.PosterUsername)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(resp)
 }

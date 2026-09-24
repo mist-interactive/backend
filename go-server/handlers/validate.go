@@ -18,11 +18,19 @@ func init() {
 	validate.RegisterValidation("username_safety", validateUsername)
 }
 
+// Sanitizer allows input structs to clean/trim their fields before validation.
+type Sanitizer interface {
+	Sanitize()
+}
+
 func DecodeAndValidate[T any](r *http.Request) (T, error) {
 	var request T
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 		slog.Warn("payload json decode error", "path", r.URL.Path, "error", err)
 		return request, fmt.Errorf("JSON decoder error: %v", err)
+	}
+	if s, ok := any(&request).(Sanitizer); ok {
+		s.Sanitize()
 	}
 	if err := validate.Struct(request); err != nil {
 		slog.Warn("payload validation error", "path", r.URL.Path, "error", err)

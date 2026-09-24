@@ -1,6 +1,7 @@
 package models
 
 import (
+	"strings"
 	"time"
 
 	"github.com/uptrace/bun"
@@ -20,6 +21,11 @@ type CommentCreateInput struct {
 	Content string `json:"content" validate:"required,min=1,max=1000"`
 }
 
+// function runs before validation, so input of only whitespace will fail min=1 requirement
+func (c *CommentCreateInput) Sanitize() {
+	c.Content = strings.TrimSpace(c.Content)
+}
+
 type CommentResponse struct {
 	ID              int64     `json:"id" bun:"id"`
 	OwnerID         int64     `json:"owner_id" bun:"owner_id"`
@@ -34,4 +40,3 @@ type PaginatedCommentsResponse struct {
 	Comments []CommentResponse `json:"comments"`
 	HasMore  bool              `json:"has_more"`
 }
-
