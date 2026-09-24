@@ -36,9 +36,17 @@ type ProfilePatchInput struct {
 	Email     *string `json:"email" validate:"omitempty,email,max=255"`
 }
 
+type UserStats struct {
+	GamesPlayed int     `json:"games_played" bun:"games_played"`
+	Wins        int     `json:"wins" bun:"wins"`
+	Losses      int     `json:"losses" bun:"losses"`
+	WinRate     float64 `json:"win_rate" bun:"-"`
+}
+
 type UserProfile struct {
-	Username  string  `json:"username"`
-	Email     *string `json:"email,omitempty"`
-	Bio       string  `json:"bio"`
-	AvatarURL *string `json:"avatarUrl"`
+	Username  string    `json:"username" bun:"username"`
+	Email     *string   `json:"email,omitempty" bun:"email"`
+	Bio       string    `json:"bio" bun:"bio"`
+	AvatarURL *string   `json:"avatarUrl" bun:"avatar_url"`
+	Stats     UserStats `json:"stats" bun:"-"`
 }
