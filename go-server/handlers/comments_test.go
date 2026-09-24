@@ -42,7 +42,7 @@ func TestProfileCommentsGet(t *testing.T) {
 
 	userMap := map[int64]string{users[0].ID: users[0].Username, users[1].ID: users[1].Username, users[2].ID: users[2].Username}
 
-	assertComments := func(t *testing.T, resp models.PaginatedCommentsResponse, wantHasMore bool, want ...*models.Comment) {
+	assertComments := func(t *testing.T, resp models.PaginatedCommentsResponse, wantHasMore bool, want []*models.Comment) {
 		t.Helper()
 		if resp.HasMore != wantHasMore {
 			t.Errorf("has_more: got %v, want %v", resp.HasMore, wantHasMore)
@@ -112,7 +112,7 @@ func TestProfileCommentsGet(t *testing.T) {
 			}
 			if tc.expectedStatus == http.StatusOK {
 				resp := testutil.DecodeJSON[models.PaginatedCommentsResponse](t, rec)
-				assertComments(t, resp, tc.wantHasMore, tc.wantComments...)
+				assertComments(t, resp, tc.wantHasMore, tc.wantComments)
 			}
 		})
 	}
