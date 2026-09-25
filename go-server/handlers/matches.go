@@ -199,6 +199,8 @@ func (h *Handler) MatchPatch(w http.ResponseWriter, r *http.Request) {
 	p1Earned, p2Earned := h.evaluatePostMatchBadges(r.Context(), match, result)
 	h.broadcastMatchFinished(matchID, match, p1Score, p2Score, status, result, p1Earned, p2Earned)
 
+	h.InvalidateLeaderboardCache()
+
 	w.WriteHeader(http.StatusNoContent)
 }
 

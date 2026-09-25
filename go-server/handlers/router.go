@@ -51,12 +51,13 @@ type EventNotifier interface {
 }
 
 type Handler struct {
-	DB         *bun.DB
-	PrivateKey *rsa.PrivateKey
-	PublicKey  *rsa.PublicKey
-	APIKey     string
-	Notifier   EventNotifier
-	UploadsDir string
+	DB          *bun.DB
+	PrivateKey  *rsa.PrivateKey
+	PublicKey   *rsa.PublicKey
+	APIKey      string
+	Notifier    EventNotifier
+	UploadsDir  string
+	leaderboard leaderboardCache
 }
 
 func (h *Handler) GetUploadsDir() string {
@@ -83,6 +84,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"status":"healthy"}`))
 	})
+	mux.HandleFunc("GET /api/leaderboard", h.LeaderboardGet)
 	//requires session token
 	mux.Handle("POST /api/renew", h.SessionGuard(http.HandlerFunc(h.IssueToken)))
 

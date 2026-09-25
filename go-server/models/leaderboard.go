@@ -8,7 +8,8 @@ const (
 	LeaderboardSortWinRate LeaderboardSort = "win_rate"
 )
 
-// LeaderboardEntry represents a single player's position, profile info, and career statistics on the leaderboard.
+// LeaderboardEntry is the public backend-to-frontend response DTO representing a player's
+// position on the leaderboard, enriched with calculated progression (XP, level, rank title).
 type LeaderboardEntry struct {
 	Rank        int     `json:"rank"`
 	UserID      int64   `json:"user_id"`
