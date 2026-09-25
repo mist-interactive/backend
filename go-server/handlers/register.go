@@ -29,5 +29,6 @@ func (h *Handler) TryRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	slog.Info("user registered successfully", "user_id", newUser.ID, "username", newUser.Username, "email", newUser.Email)
+	h.InvalidateLeaderboardCache()
 	w.WriteHeader(http.StatusCreated)
 }
