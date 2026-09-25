@@ -44,9 +44,11 @@ type UserStats struct {
 }
 
 type UserProfile struct {
-	Username  string    `json:"username" bun:"username"`
-	Email     *string   `json:"email,omitempty" bun:"email"`
-	Bio       string    `json:"bio" bun:"bio"`
-	AvatarURL *string   `json:"avatarUrl" bun:"avatar_url"`
-	Stats     UserStats `json:"stats" bun:"-"`
+	Username    string              `json:"username" bun:"username"`
+	Email       *string             `json:"email,omitempty" bun:"email"`
+	Bio         string              `json:"bio" bun:"bio"`
+	AvatarURL   *string             `json:"avatarUrl" bun:"avatar_url"`
+	Stats       UserStats           `json:"stats" bun:"-"`
+	Progression *ProgressionInfo    `json:"progression,omitempty" bun:"-"`
+	Badges      []UserBadgeResponse `json:"badges,omitempty" bun:"-"`
 }
