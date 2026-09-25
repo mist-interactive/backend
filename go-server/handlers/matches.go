@@ -196,32 +196,63 @@ func (h *Handler) MatchPatch(w http.ResponseWriter, r *http.Request) {
 		"result", result,
 	)
 
-	if h.Notifier != nil {
-		var winnerID *int64
-		switch result {
-		case models.ResultPlayer1Win:
-			winnerID = &match.Player1
-		case models.ResultPlayer2Win:
-			winnerID = &match.Player2
-		}
-
-		payload := models.MatchFinishedPayload{
-			MatchID:      matchID,
-			Player1:      match.Player1,
-			Player2:      match.Player2,
-			Player1Score: p1Score,
-			Player2Score: p2Score,
-			Status:       status,
-			Result:       result,
-			WinnerID:     winnerID,
-		}
-
-		if err := h.Notifier.MatchFinished(payload); err != nil {
-			slog.Warn("could not dispatch match finish notification to realtime hub", "match_id", matchID, "error", err)
-		}
-	}
+	p1Earned, p2Earned := h.evaluatePostMatchBadges(r.Context(), match, result)
+	h.broadcastMatchFinished(matchID, match, p1Score, p2Score, status, result, p1Earned, p2Earned)
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) evaluatePostMatchBadges(ctx context.Context, match models.MatchRecord, result models.MatchResult) ([]models.BadgeDefinition, []models.BadgeDefinition) {
+	p1Stats, err := h.getUserStats(ctx, match.Player1)
+	if err != nil {
+		slog.Error("failed to get player 1 stats for badge evaluation", "user_id", match.Player1, "error", err)
+	}
+	p2Stats, err := h.getUserStats(ctx, match.Player2)
+	if err != nil {
+		slog.Error("failed to get player 2 stats for badge evaluation", "user_id", match.Player2, "error", err)
+	}
+
+	p1Earned, _ := h.EvaluateAndGrantBadges(ctx, match.Player1, models.TriggerMatch, models.EvalContext{
+		Stats:    p1Stats,
+		WonMatch: result == models.ResultPlayer1Win,
+	})
+	p2Earned, _ := h.EvaluateAndGrantBadges(ctx, match.Player2, models.TriggerMatch, models.EvalContext{
+		Stats:    p2Stats,
+		WonMatch: result == models.ResultPlayer2Win,
+	})
+
+	return p1Earned, p2Earned
+}
+
+func (h *Handler) broadcastMatchFinished(matchID int64, match models.MatchRecord, p1Score, p2Score int, status models.MatchStatus, result models.MatchResult, p1Badges, p2Badges []models.BadgeDefinition) {
+	if h.Notifier == nil {
+		return
+	}
+
+	var winnerID *int64
+	switch result {
+	case models.ResultPlayer1Win:
+		winnerID = &match.Player1
+	case models.ResultPlayer2Win:
+		winnerID = &match.Player2
+	}
+
+	payload := models.MatchFinishedPayload{
+		MatchID:             matchID,
+		Player1:             match.Player1,
+		Player2:             match.Player2,
+		Player1Score:        p1Score,
+		Player2Score:        p2Score,
+		Status:              status,
+		Result:              result,
+		WinnerID:            winnerID,
+		Player1EarnedBadges: p1Badges,
+		Player2EarnedBadges: p2Badges,
+	}
+
+	if err := h.Notifier.MatchFinished(payload); err != nil {
+		slog.Warn("could not dispatch match finish notification to realtime hub", "match_id", matchID, "error", err)
+	}
 }
 
 // UserActiveMatchGet handles GET /api/internal/users/{id}/active-match.

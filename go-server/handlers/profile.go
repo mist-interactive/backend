@@ -67,12 +67,10 @@ func (h *Handler) ProfilePatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	stats, err := h.getUserStats(r.Context(), userID)
-	if err != nil {
-		HandleDBError(w, err, "User stats calculate")
+	if err := h.enrichProfileWithStats(r.Context(), userID, profile); err != nil {
+		HandleDBError(w, err, "User profile stats")
 		return
 	}
-	profile.Stats = stats
 
 	//Return the updated profile data
 	w.Header().Set("Content-Type", "application/json")
@@ -121,13 +119,47 @@ func (h *Handler) buildProfile(ctx context.Context, user *models.User, isSelf bo
 		profile.Email = &user.Email
 	}
 
-	stats, err := h.getUserStats(ctx, user.ID)
-	if err != nil {
+	if err := h.enrichProfileWithStats(ctx, user.ID, profile); err != nil {
 		return nil, err
+	}
+
+	return profile, nil
+}
+
+func (h *Handler) enrichProfileWithStats(ctx context.Context, userID int64, profile *models.UserProfile) error {
+	stats, err := h.getUserStats(ctx, userID)
+	if err != nil {
+		return err
 	}
 	profile.Stats = stats
 
-	return profile, nil
+	progression := CalculateProgression(stats)
+	profile.Progression = &progression
+
+	evalCtx := models.EvalContext{
+		Stats:      stats,
+		HasFriends: h.hasAcceptedFriend(ctx, userID),
+	}
+
+	badges, err := h.BuildUserBadges(ctx, userID, evalCtx)
+	if err != nil {
+		return err
+	}
+	profile.Badges = badges
+
+	return nil
+}
+
+func (h *Handler) hasAcceptedFriend(ctx context.Context, userID int64) bool {
+	hasFriends, err := h.DB.NewSelect().
+		Table("friendships").
+		Where("(user_id = ? OR friend_id = ?) AND status = ?", userID, userID, models.StatusAccepted).
+		Exists(ctx)
+	if err != nil {
+		slog.Warn("failed to check user friendships for badges", "user_id", userID, "error", err)
+		return false
+	}
+	return hasFriends
 }
 
 func (h *Handler) getUserStats(ctx context.Context, userID int64) (models.UserStats, error) {
