@@ -94,6 +94,9 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	protected.HandleFunc("PATCH /profile", h.ProfilePatch)
 	protected.HandleFunc("GET /profile/{username}", h.ProfileGetByUsername)
 	protected.HandleFunc("DELETE /profile", h.ProfileDelete)
+	protected.HandleFunc("GET /profile/{username}/comments", h.ProfileCommentsGet)
+	protected.HandleFunc("POST /profile/{username}/comments", h.ProfileCommentCreate)
+	protected.HandleFunc("DELETE /profile/{username}/comments/{id}", h.ProfileCommentDelete)
 
 	protected.HandleFunc("POST /avatar", h.AvatarUpload)
 
