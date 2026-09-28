@@ -72,6 +72,10 @@ func (h *Handler) ProfilePatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if input.AvatarURL != nil {
+		h.InvalidateLeaderboardCache()
+	}
+
 	//Return the updated profile data
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -239,5 +243,6 @@ func (h *Handler) ProfileDelete(w http.ResponseWriter, r *http.Request) {
 
 	//Set a non-valid Cookie to replace the old one
 	ClearSessionCookie(w)
+	h.InvalidateLeaderboardCache()
 	w.WriteHeader(http.StatusNoContent)
 }
