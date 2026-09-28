@@ -49,12 +49,12 @@ type MatchCreateInput struct {
 }
 
 type PlayerScoreInput struct {
-	PlayerID int64 `json:"player_id" validate:"required"`
+	PlayerID int64 `json:"player_id" validate:"required,min=1"`
 	Score    int   `json:"score" validate:"min=0"`
 }
 
 type MatchPatchInput struct {
-	Scores []PlayerScoreInput `json:"scores" validate:"required,len=2"`
+	Scores []PlayerScoreInput `json:"scores,omitempty" validate:"omitempty,max=2,dive"`
 	Status *MatchStatus       `json:"status,omitempty" validate:"omitempty,oneof=finished abandoned"`
 }
 
