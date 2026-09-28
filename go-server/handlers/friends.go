@@ -137,6 +137,12 @@ func (h *Handler) FriendRequestAnswer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if f.Status == models.StatusAccepted { //if we just inserted a friends request into DB, run social achievement check for both participants
+		socialCtx := models.EvalContext{HasFriends: true}
+		_, _ = h.EvaluateAndGrantBadges(r.Context(), userID, models.TriggerSocial, socialCtx)
+		_, _ = h.EvaluateAndGrantBadges(r.Context(), f.UserID, models.TriggerSocial, socialCtx)
+	}
+
 	if h.Notifier != nil {
 		responder, err := h.getUserByID(r.Context(), userID)
 		if err != nil {

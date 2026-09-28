@@ -18,7 +18,10 @@ func SeedDevDatabase(ctx context.Context, db *bun.DB) error {
 	}
 	if exists {
 		log.Println("Database already populated, skipping dev seeding.")
-		return SeedDevComments(ctx, db)
+		if err := SeedDevComments(ctx, db); err != nil {
+			return err
+		}
+		return SeedDevAchievements(ctx, db)
 	}
 
 	hash, _ := bcrypt.GenerateFromPassword([]byte("password123"), bcrypt.DefaultCost)
@@ -146,7 +149,10 @@ func SeedDevDatabase(ctx context.Context, db *bun.DB) error {
 	}
 
 	log.Printf("Successfully seeded %d users, %d friendships, and %d matches!", len(users), len(friendships), len(matches))
-	return SeedDevComments(ctx, db)
+	if err := SeedDevComments(ctx, db); err != nil {
+		return err
+	}
+	return SeedDevAchievements(ctx, db)
 }
 
 func SeedDevComments(ctx context.Context, db *bun.DB) error {
@@ -209,3 +215,84 @@ func SeedDevComments(ctx context.Context, db *bun.DB) error {
 	log.Printf("Successfully seeded %d comments across %d named users!", len(comments), len(namedUsers))
 	return nil
 }
+
+func SeedDevAchievements(ctx context.Context, db *bun.DB) error {
+	exists, err := db.NewSelect().Model((*models.UserAchievement)(nil)).Exists(ctx)
+	if err != nil {
+		return err
+	}
+	if exists {
+		log.Println("Achievements already populated, skipping achievement seeding.")
+		return nil
+	}
+
+	var users []models.User
+	err = db.NewSelect().
+		Model(&users).
+		Order("id ASC").
+		Scan(ctx)
+	if err != nil {
+		return err
+	}
+	if len(users) == 0 {
+		log.Println("No users found to seed achievements.")
+		return nil
+	}
+
+	now := time.Now()
+	var achievements []models.UserAchievement
+
+	for _, u := range users {
+		hasFriends, err := db.NewSelect().
+			Table("friendships").
+			Where("(user_id = ? OR friend_id = ?) AND status = ?", u.ID, u.ID, models.StatusAccepted).
+			Exists(ctx)
+		if err != nil {
+			return err
+		}
+
+		var stats models.UserStats
+		err = db.NewSelect().
+			Table("matches").
+			ColumnExpr("COUNT(*) FILTER (WHERE status = ?) AS games_played", models.StatusFinished).
+			ColumnExpr("COUNT(*) FILTER (WHERE status = ? AND ((player_one = ? AND result = ?) OR (player_two = ? AND result = ?))) AS wins",
+				models.StatusFinished, u.ID, models.ResultPlayer1Win, u.ID, models.ResultPlayer2Win).
+			ColumnExpr("COUNT(*) FILTER (WHERE status = ? AND ((player_one = ? AND result = ?) OR (player_two = ? AND result = ?))) AS losses",
+				models.StatusFinished, u.ID, models.ResultPlayer2Win, u.ID, models.ResultPlayer1Win).
+			Where("player_one = ? OR player_two = ?", u.ID, u.ID).
+			Scan(ctx, &stats)
+		if err != nil {
+			return err
+		}
+
+		evalCtx := models.EvalContext{
+			Stats:      stats,
+			HasFriends: hasFriends,
+		}
+
+		for _, badge := range models.BadgeCatalog {
+			current, target := badge.Evaluate(evalCtx)
+			if target > 0 && current >= target {
+				achievements = append(achievements, models.UserAchievement{
+					UserID:        u.ID,
+					AchievementID: badge.ID,
+					UnlockedAt:    now,
+				})
+			}
+		}
+	}
+
+	if len(achievements) > 0 {
+		_, err = db.NewInsert().
+			Model(&achievements).
+			On("CONFLICT (user_id, achievement_id) DO NOTHING").
+			Exec(ctx)
+		if err != nil {
+			return err
+		}
+	}
+
+	log.Printf("Successfully seeded %d achievements across %d users!", len(achievements), len(users))
+	return nil
+}
+
