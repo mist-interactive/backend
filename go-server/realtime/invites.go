@@ -3,37 +3,70 @@ package realtime
 import (
 	"fmt"
 	"log/slog"
+	"time"
 )
 
-// cleanUpInvites cancels all pending invites involving the disconnected user and notifies the other party.
+const (
+	inviteTTL           = 25 * time.Second // Server-side TTL
+	invitePruneInterval = 30 * time.Second // Periodic memory sweep interval for stale expired invites
+)
+
+// sendInviteCancel sends a match_invite_cancel notification to recipient indicating that the challenge involving username was canceled.
+func (h *Hub) sendInviteCancel(recipient, username string) {
+	cancelBytes, err := EncodeMessage(TypeInviteCancel, MatchInvitePayload{
+		Username: username,
+		Status:   "canceled",
+	})
+	if err == nil {
+		h.sendToUsernameDirect(recipient, cancelBytes)
+	}
+}
+
+// notifyInviteCanceled sends match_invite_cancel notifications to both the target and the challenger.
+func (h *Hub) notifyInviteCanceled(challenger, target string) {
+	h.sendInviteCancel(target, challenger)
+	h.sendInviteCancel(challenger, target)
+}
+
+// pruneExpiredInvites sweeps h.invites and removes any entries that have exceeded inviteTTL,
+// notifying both parties that the match challenge has timed out.
+func (h *Hub) pruneExpiredInvites() {
+	now := time.Now()
+	pruned := 0
+	for key, createdAt := range h.invites {
+		if now.Sub(createdAt) > inviteTTL {
+			delete(h.invites, key)
+			pruned++
+			h.notifyInviteCanceled(key.challenger, key.target)
+		}
+	}
+	if pruned > 0 {
+		slog.Debug("Pruned expired match invites from memory",
+			"pruned_count", pruned,
+			"remaining_invites", len(h.invites),
+		)
+	}
+}
+
+// cleanUpInvites cancels all pending invites involving the specified user and notifies the other party.
 func (h *Hub) cleanUpInvites(username string) int {
 	cleaned := 0
 	for key := range h.invites {
 		if key.challenger == username {
 			delete(h.invites, key)
 			cleaned++
-			cancelBytes, err := EncodeMessage(TypeInviteCancel, MatchInvitePayload{
-				Username: username,
-				Status:   "canceled",
-			})
-			if err == nil {
-				h.sendToUsernameDirect(key.target, cancelBytes)
-			}
-			slog.Info("Canceled pending invite: challenger disconnected",
+			h.sendInviteCancel(key.target, username)
+			slog.Info("Canceled pending invite for user",
+				"user", username,
 				"challenger", username,
 				"target", key.target,
 			)
 		} else if key.target == username {
 			delete(h.invites, key)
 			cleaned++
-			cancelBytes, err := EncodeMessage(TypeInviteCancel, MatchInvitePayload{
-				Username: username,
-				Status:   "canceled",
-			})
-			if err == nil {
-				h.sendToUsernameDirect(key.challenger, cancelBytes)
-			}
-			slog.Info("Canceled pending invite: target disconnected",
+			h.sendInviteCancel(key.challenger, username)
+			slog.Info("Canceled pending invite for user",
+				"user", username,
 				"challenger", key.challenger,
 				"target", username,
 			)
@@ -42,8 +75,8 @@ func (h *Hub) cleanUpInvites(username string) int {
 	return cleaned
 }
 
-// onInviteSend validates an outgoing challenge, registers it in h.invites, and delivers
-// a "match_invite_recv" notification to the target player if they are currently connected.
+// onInviteSend validates an outgoing challenge, registers it in h.invites with a timestamp,
+// enforces duplicate prevention and mutual challenge safeguards, and delivers "match_invite_recv" to the target.
 func (h *Hub) onInviteSend(sender *Client, target string) {
 	if sender.Username == target {
 		slog.Warn("Match invite rejected: self challenge", "challenger", sender.Username)
@@ -58,24 +91,38 @@ func (h *Hub) onInviteSend(sender *Client, target string) {
 		return
 	}
 
-	key := inviteKey{challenger: sender.Username, target: target}
-	alreadyPending := h.invites[key]
+	now := time.Now()
 
-	if alreadyPending {
-		slog.Warn("Duplicate match invite sent while already pending",
+	// 1. Check if this challenger already has an unexpired challenge to the exact same target
+	key := inviteKey{challenger: sender.Username, target: target}
+	if createdAt, exists := h.invites[key]; exists && now.Sub(createdAt) < inviteTTL {
+		slog.Warn("Match invite rejected: challenge already pending",
 			"challenger", sender.Username,
 			"target", target,
-			"total_pending_invites", len(h.invites),
+			"remaining_seconds", int((inviteTTL - now.Sub(createdAt)).Seconds()),
 		)
-	} else {
-		slog.Info("Match invite sent",
-			"challenger", sender.Username,
-			"target", target,
-			"total_pending_invites", len(h.invites)+1,
-		)
+		sender.SendError(fmt.Sprintf("Challenge to '%s' is already pending", target))
+		return
 	}
 
-	h.invites[key] = true
+	// 2. Check if the target has already challenged this sender (mutual challenge safeguard)
+	reverseKey := inviteKey{challenger: target, target: sender.Username}
+	if createdAt, exists := h.invites[reverseKey]; exists && now.Sub(createdAt) < inviteTTL {
+		slog.Warn("Match invite rejected: reverse challenge pending",
+			"challenger", sender.Username,
+			"target", target,
+		)
+		sender.SendError(fmt.Sprintf("'%s' has already challenged you! Please accept their invite.", target))
+		return
+	}
+
+	h.invites[key] = now
+	slog.Info("Match invite sent",
+		"challenger", sender.Username,
+		"target", target,
+		"total_pending_invites", len(h.invites),
+	)
+
 	inviteBytes, err := EncodeMessage(TypeInviteRecv, MatchInvitePayload{
 		Username: sender.Username,
 		Status:   "pending",
@@ -86,12 +133,14 @@ func (h *Hub) onInviteSend(sender *Client, target string) {
 }
 
 // onInviteResponse handles an accept or decline from the target player.
-// It verifies that a challenge is actively pending in h.invites (anti-spoof protection).
+// It verifies that a challenge is actively pending and within the TTL in h.invites.
 // If accepted, it deletes the invite and launches createAndStartMatch in a separate goroutine.
 // If declined, it deletes the invite and forwards the decline to the challenger.
 func (h *Hub) onInviteResponse(sender *Client, challenger, status string) {
 	key := inviteKey{challenger: challenger, target: sender.Username}
-	if !h.invites[key] {
+	createdAt, exists := h.invites[key]
+	if !exists || time.Since(createdAt) > inviteTTL {
+		delete(h.invites, key)
 		slog.Warn("Match invite response rejected: invite not found or expired",
 			"responder", sender.Username,
 			"challenger", challenger,
@@ -112,6 +161,10 @@ func (h *Hub) onInviteResponse(sender *Client, challenger, status string) {
 
 	switch status {
 	case "accepted":
+		// Preemptively cancel any remaining pending challenges involving either player
+		h.cleanUpInvites(challenger)
+		h.cleanUpInvites(sender.Username)
+
 		// Run DB match creation in background so the Hub event loop never blocks on DB I/O
 		go h.createAndStartMatch(challenger, sender.Username)
 	case "declined":
@@ -134,7 +187,9 @@ func (h *Hub) onInviteResponse(sender *Client, challenger, status string) {
 // to the target player to dismiss the challenge prompt on their client.
 func (h *Hub) onInviteCancel(sender *Client, target string) {
 	key := inviteKey{challenger: sender.Username, target: target}
-	if !h.invites[key] {
+	createdAt, exists := h.invites[key]
+	if !exists || time.Since(createdAt) > inviteTTL {
+		delete(h.invites, key)
 		slog.Warn("Match invite cancel rejected: invite not found or expired",
 			"challenger", sender.Username,
 			"target", target,
@@ -148,16 +203,5 @@ func (h *Hub) onInviteCancel(sender *Client, target string) {
 		"target", target,
 		"remaining_pending_invites", len(h.invites),
 	)
-	cancelBytes, err := EncodeMessage(TypeInviteCancel, MatchInvitePayload{
-		Username: sender.Username,
-		Status:   "canceled",
-	})
-	if err == nil {
-		if !h.sendToUsernameDirect(target, cancelBytes) {
-			slog.Debug("Cancel invite notification not delivered to target (offline)",
-				"challenger", sender.Username,
-				"target", target,
-			)
-		}
-	}
+	h.sendInviteCancel(target, sender.Username)
 }
