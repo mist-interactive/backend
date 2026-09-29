@@ -4,6 +4,7 @@ import (
 	"context"
 	"dbBackend/models"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -98,7 +99,7 @@ func (h *Handler) MatchPatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if input.Scores[0].PlayerID == input.Scores[1].PlayerID {
+	if len(input.Scores) == 2 && input.Scores[0].PlayerID == input.Scores[1].PlayerID {
 		slog.Warn("match patch rejected: duplicate player ID in scores", "match_id", matchID, "player_id", input.Scores[0].PlayerID)
 		http.Error(w, "Scores must be for two distinct players", http.StatusBadRequest)
 		return
@@ -120,47 +121,17 @@ func (h *Handler) MatchPatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Map reported scores to player 1 and player 2 regardless of order
-	var p1Score, p2Score int
-	var found1, found2 bool
-
-	for _, s := range input.Scores {
-		switch s.PlayerID {
-		case match.Player1:
-			p1Score = s.Score
-			found1 = true
-		case match.Player2:
-			p2Score = s.Score
-			found2 = true
-		}
-	}
-
-	if !found1 || !found2 {
-		slog.Warn("match patch rejected: score player IDs do not match participants",
-			"match_id", matchID,
-			"expected_p1", match.Player1,
-			"expected_p2", match.Player2,
-			"received_id1", input.Scores[0].PlayerID,
-			"received_id2", input.Scores[1].PlayerID,
-		)
-		http.Error(w, "Reported scores do not match the registered match participants", http.StatusBadRequest)
-		return
-	}
-
 	// Infer status (default to finished if omitted)
 	status := models.StatusFinished
 	if input.Status != nil && *input.Status != "" {
 		status = *input.Status
 	}
 
-	// Infer result based on scores
-	var result models.MatchResult
-	if p1Score > p2Score {
-		result = models.ResultPlayer1Win
-	} else if p2Score > p1Score {
-		result = models.ResultPlayer2Win
-	} else {
-		result = models.ResultDraw
+	p1Score, p2Score, result, err := resolveMatchOutcome(match, input.Scores, status)
+	if err != nil {
+		slog.Warn("match patch rejected: invalid outcome", "match_id", matchID, "error", err)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
 	}
 
 	now := time.Now()
@@ -196,12 +167,55 @@ func (h *Handler) MatchPatch(w http.ResponseWriter, r *http.Request) {
 		"result", result,
 	)
 
-	p1Earned, p2Earned := h.evaluatePostMatchBadges(r.Context(), match, result)
+	var p1Earned, p2Earned []models.BadgeDefinition
+	if status != models.StatusAbandoned {
+		p1Earned, p2Earned = h.evaluatePostMatchBadges(r.Context(), match, result)
+	}
 	h.broadcastMatchFinished(matchID, match, p1Score, p2Score, status, result, p1Earned, p2Earned)
 
 	h.InvalidateLeaderboardCache()
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func resolveMatchOutcome(match models.MatchRecord, scores []models.PlayerScoreInput, status models.MatchStatus) (int, int, models.MatchResult, error) {
+	if len(scores) == 2 && scores[0].PlayerID == scores[1].PlayerID {
+		return 0, 0, "", errors.New("Scores must be for two distinct players")
+	}
+
+	var p1Score, p2Score int
+	var found1, found2 bool
+	for _, s := range scores {
+		switch s.PlayerID {
+		case match.Player1:
+			p1Score = s.Score
+			found1 = true
+		case match.Player2:
+			p2Score = s.Score
+			found2 = true
+		default:
+			return 0, 0, "", errors.New("Reported scores do not match the registered match participants")
+		}
+	}
+
+	if status == models.StatusAbandoned {
+		return p1Score, p2Score, models.ResultAborted, nil
+	}
+
+	if !found1 || !found2 {
+		return 0, 0, "", errors.New("Finished matches require scores for both players")
+	}
+
+	return p1Score, p2Score, inferMatchResult(p1Score, p2Score), nil
+}
+
+func inferMatchResult(p1Score, p2Score int) models.MatchResult {
+	if p1Score > p2Score {
+		return models.ResultPlayer1Win
+	} else if p2Score > p1Score {
+		return models.ResultPlayer2Win
+	}
+	return models.ResultDraw
 }
 
 func (h *Handler) evaluatePostMatchBadges(ctx context.Context, match models.MatchRecord, result models.MatchResult) ([]models.BadgeDefinition, []models.BadgeDefinition) {

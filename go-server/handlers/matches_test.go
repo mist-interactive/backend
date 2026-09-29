@@ -31,142 +31,144 @@ func TestMatchPatch(t *testing.T) {
 
 	handler := handlers.NewHandler(testDB, nil, nil, "", nil)
 
+	type expectedOutcome struct {
+		status  models.MatchStatus
+		result  models.MatchResult
+		p1Score int
+		p2Score int
+	}
+
+	assertMatchOutcome := func(t *testing.T, matchID int64, expected expectedOutcome) {
+		t.Helper()
+		var m models.MatchRecord
+		if err := testDB.NewSelect().Model(&m).Where("id = ?", matchID).Scan(ctx); err != nil {
+			t.Fatalf("failed to fetch updated match: %v", err)
+		}
+		if m.Status != expected.status {
+			t.Errorf("status: got %s, want %s", m.Status, expected.status)
+		}
+		if m.Result == nil || *m.Result != expected.result {
+			t.Errorf("result: got %v, want %s", m.Result, expected.result)
+		}
+		if m.Player1Score == nil || *m.Player1Score != expected.p1Score {
+			t.Errorf("player1_score: got %v, want %d", m.Player1Score, expected.p1Score)
+		}
+		if m.Player2Score == nil || *m.Player2Score != expected.p2Score {
+			t.Errorf("player2_score: got %v, want %d", m.Player2Score, expected.p2Score)
+		}
+		if m.FinishedAt == nil {
+			t.Errorf("expected finished_at timestamp to be set")
+		}
+	}
+
 	tests := []struct {
 		name           string
-		setup          func(t *testing.T) (int64, models.MatchPatchInput)
+		input          models.MatchPatchInput
+		matchID        int64
+		setup          func(t *testing.T) int64
 		expectedStatus int
-		validate       func(t *testing.T, matchID int64)
+		expected       *expectedOutcome
 	}{
 		{
-			name: "Success: Unordered scores mapped correctly and player 2 win inferred",
-			setup: func(t *testing.T) (int64, models.MatchPatchInput) {
-				match := &models.MatchRecord{
-					Player1: users[0].ID,
-					Player2: users[1].ID,
-					Status:  models.StatusInProgress,
-				}
-				if _, err := testDB.NewInsert().Model(match).Exec(ctx); err != nil {
-					t.Fatalf("failed to insert match: %v", err)
-				}
-				return match.ID, models.MatchPatchInput{
-					Scores: []models.PlayerScoreInput{
-						{PlayerID: users[1].ID, Score: 7},
-						{PlayerID: users[0].ID, Score: 3},
-					},
-				}
+			name: "Success: Player 2 win inferred",
+			input: models.MatchPatchInput{
+				Scores: []models.PlayerScoreInput{
+					{PlayerID: users[1].ID, Score: 7},
+					{PlayerID: users[0].ID, Score: 3},
+				},
 			},
 			expectedStatus: http.StatusNoContent,
-			validate: func(t *testing.T, matchID int64) {
-				var m models.MatchRecord
-				if err := testDB.NewSelect().Model(&m).Where("id = ?", matchID).Scan(ctx); err != nil {
-					t.Fatalf("failed to fetch updated match: %v", err)
-				}
-				if m.Status != models.StatusFinished {
-					t.Errorf("expected status %s, got %s", models.StatusFinished, m.Status)
-				}
-				if m.Result == nil || *m.Result != models.ResultPlayer2Win {
-					t.Errorf("expected result %s, got %v", models.ResultPlayer2Win, m.Result)
-				}
-				if m.Player1Score == nil || *m.Player1Score != 3 {
-					t.Errorf("expected player1_score 3, got %v", m.Player1Score)
-				}
-				if m.Player2Score == nil || *m.Player2Score != 7 {
-					t.Errorf("expected player2_score 7, got %v", m.Player2Score)
-				}
-				if m.FinishedAt == nil {
-					t.Errorf("expected finished_at timestamp to be set")
-				}
-			},
+			expected:       &expectedOutcome{status: models.StatusFinished, result: models.ResultPlayer2Win, p1Score: 3, p2Score: 7},
 		},
 		{
 			name: "Success: Equal scores infer draw",
-			setup: func(t *testing.T) (int64, models.MatchPatchInput) {
-				match := &models.MatchRecord{
-					Player1: users[0].ID,
-					Player2: users[1].ID,
-					Status:  models.StatusInProgress,
-				}
-				if _, err := testDB.NewInsert().Model(match).Exec(ctx); err != nil {
-					t.Fatalf("failed to insert match: %v", err)
-				}
-				return match.ID, models.MatchPatchInput{
-					Scores: []models.PlayerScoreInput{
-						{PlayerID: users[0].ID, Score: 4},
-						{PlayerID: users[1].ID, Score: 4},
-					},
-				}
+			input: models.MatchPatchInput{
+				Scores: []models.PlayerScoreInput{
+					{PlayerID: users[0].ID, Score: 4},
+					{PlayerID: users[1].ID, Score: 4},
+				},
 			},
 			expectedStatus: http.StatusNoContent,
-			validate: func(t *testing.T, matchID int64) {
-				var m models.MatchRecord
-				if err := testDB.NewSelect().Model(&m).Where("id = ?", matchID).Scan(ctx); err != nil {
-					t.Fatalf("failed to fetch updated match: %v", err)
-				}
-				if m.Status != models.StatusFinished {
-					t.Errorf("expected status %s, got %s", models.StatusFinished, m.Status)
-				}
-				if m.Result == nil || *m.Result != models.ResultDraw {
-					t.Errorf("expected result %s, got %v", models.ResultDraw, m.Result)
-				}
-				if m.Player1Score == nil || *m.Player1Score != 4 {
-					t.Errorf("expected player1_score 4, got %v", m.Player1Score)
-				}
-				if m.Player2Score == nil || *m.Player2Score != 4 {
-					t.Errorf("expected player2_score 4, got %v", m.Player2Score)
-				}
-			},
+			expected:       &expectedOutcome{status: models.StatusFinished, result: models.ResultDraw, p1Score: 4, p2Score: 4},
 		},
 		{
-			name: "Failure: Duplicate player ID in scores",
-			setup: func(t *testing.T) (int64, models.MatchPatchInput) {
-				return 999, models.MatchPatchInput{
-					Scores: []models.PlayerScoreInput{
-						{PlayerID: users[0].ID, Score: 5},
-						{PlayerID: users[0].ID, Score: 2},
-					},
-				}
+			name: "Success: Match abandoned without scores",
+			input: models.MatchPatchInput{
+				Status: testutil.Ptr(models.StatusAbandoned),
+			},
+			expectedStatus: http.StatusNoContent,
+			expected:       &expectedOutcome{status: models.StatusAbandoned, result: models.ResultAborted, p1Score: 0, p2Score: 0},
+		},
+		{
+			name: "Success: Match abandoned with single score",
+			input: models.MatchPatchInput{
+				Status: testutil.Ptr(models.StatusAbandoned),
+				Scores: []models.PlayerScoreInput{{PlayerID: users[0].ID, Score: 3}},
+			},
+			expectedStatus: http.StatusNoContent,
+			expected:       &expectedOutcome{status: models.StatusAbandoned, result: models.ResultAborted, p1Score: 3, p2Score: 0},
+		},
+		{
+			name:    "Failure: Duplicate player ID in scores",
+			matchID: 999,
+			input: models.MatchPatchInput{
+				Scores: []models.PlayerScoreInput{
+					{PlayerID: users[0].ID, Score: 5},
+					{PlayerID: users[0].ID, Score: 2},
+				},
 			},
 			expectedStatus: http.StatusBadRequest,
 		},
 		{
 			name: "Failure: Non-participant player ID in scores",
-			setup: func(t *testing.T) (int64, models.MatchPatchInput) {
-				match := &models.MatchRecord{
-					Player1: users[0].ID,
-					Player2: users[1].ID,
-					Status:  models.StatusInProgress,
-				}
-				if _, err := testDB.NewInsert().Model(match).Exec(ctx); err != nil {
-					t.Fatalf("failed to insert match: %v", err)
-				}
-				return match.ID, models.MatchPatchInput{
-					Scores: []models.PlayerScoreInput{
-						{PlayerID: users[0].ID, Score: 5},
-						{PlayerID: users[2].ID, Score: 2}, // non-participant in this match
-					},
-				}
+			input: models.MatchPatchInput{
+				Scores: []models.PlayerScoreInput{
+					{PlayerID: users[0].ID, Score: 5},
+					{PlayerID: users[2].ID, Score: 2},
+				},
+			},
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "Failure: Finished match with missing scores",
+			input:          models.MatchPatchInput{Status: testutil.Ptr(models.StatusFinished)},
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name: "Failure: Finished match with only one score",
+			input: models.MatchPatchInput{
+				Status: testutil.Ptr(models.StatusFinished),
+				Scores: []models.PlayerScoreInput{{PlayerID: users[0].ID, Score: 5}},
+			},
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name: "Failure: Abandoned match with non-participant score",
+			input: models.MatchPatchInput{
+				Status: testutil.Ptr(models.StatusAbandoned),
+				Scores: []models.PlayerScoreInput{{PlayerID: users[2].ID, Score: 0}},
 			},
 			expectedStatus: http.StatusBadRequest,
 		},
 		{
 			name: "Failure: Match already finished",
-			setup: func(t *testing.T) (int64, models.MatchPatchInput) {
-				result := models.ResultPlayer1Win
-				match := &models.MatchRecord{
+			setup: func(t *testing.T) int64 {
+				m := &models.MatchRecord{
 					Player1: users[0].ID,
 					Player2: users[1].ID,
 					Status:  models.StatusFinished,
-					Result:  &result,
+					Result:  testutil.Ptr(models.ResultPlayer1Win),
 				}
-				if _, err := testDB.NewInsert().Model(match).Exec(ctx); err != nil {
+				if _, err := testDB.NewInsert().Model(m).Exec(ctx); err != nil {
 					t.Fatalf("failed to insert match: %v", err)
 				}
-				return match.ID, models.MatchPatchInput{
-					Scores: []models.PlayerScoreInput{
-						{PlayerID: users[0].ID, Score: 5},
-						{PlayerID: users[1].ID, Score: 2},
-					},
-				}
+				return m.ID
+			},
+			input: models.MatchPatchInput{
+				Scores: []models.PlayerScoreInput{
+					{PlayerID: users[0].ID, Score: 5},
+					{PlayerID: users[1].ID, Score: 2},
+				},
 			},
 			expectedStatus: http.StatusConflict,
 		},
@@ -174,8 +176,24 @@ func TestMatchPatch(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			matchID, input := tc.setup(t)
-			jsonBytes, _ := json.Marshal(input)
+			var matchID int64
+			if tc.setup != nil {
+				matchID = tc.setup(t)
+			} else if tc.matchID != 0 {
+				matchID = tc.matchID
+			} else {
+				m := &models.MatchRecord{
+					Player1: users[0].ID,
+					Player2: users[1].ID,
+					Status:  models.StatusInProgress,
+				}
+				if _, err := testDB.NewInsert().Model(m).Exec(ctx); err != nil {
+					t.Fatalf("failed to insert in-progress match: %v", err)
+				}
+				matchID = m.ID
+			}
+
+			jsonBytes, _ := json.Marshal(tc.input)
 			req := httptest.NewRequest(http.MethodPatch, fmt.Sprintf("/api/internal/matches/%d", matchID), bytes.NewReader(jsonBytes))
 			req.Header.Set("Content-Type", "application/json")
 			req.SetPathValue("id", fmt.Sprintf("%d", matchID))
@@ -184,15 +202,15 @@ func TestMatchPatch(t *testing.T) {
 			handler.MatchPatch(rec, req)
 
 			if rec.Code != tc.expectedStatus {
-				t.Errorf("[%s] expected status %d, got %d. Server response: %q",
-					tc.name, tc.expectedStatus, rec.Code, rec.Body.String())
+				t.Errorf("status: got %d, want %d. Body: %s", rec.Code, tc.expectedStatus, rec.Body.String())
 			}
 
-			if tc.validate != nil {
-				tc.validate(t, matchID)
+			if tc.expected != nil {
+				assertMatchOutcome(t, matchID, *tc.expected)
 			}
 		})
 	}
+
 }
 
 func TestUserActiveMatchGet(t *testing.T) {
