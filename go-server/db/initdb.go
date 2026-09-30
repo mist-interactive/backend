@@ -59,6 +59,9 @@ func InitDB() (*bun.DB, error) {
 }
 
 func getDBPassword() string {
+	if password := os.Getenv("POSTGRES_PASSWORD"); password != "" {
+		return password
+	}
 	if password := os.Getenv("DB_PASSWORD"); password != "" { //for local testing
 		return password
 	}

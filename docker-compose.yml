@@ -4,7 +4,7 @@ services:
     image: postgres:16-alpine
     restart: always
     env_file:
-      - .env
+      - ${ENV_FILE:-../.env}
     secrets:
       - postgres_user_pw
     volumes:
@@ -30,7 +30,7 @@ services:
       - jwt_public_key
       - internal_api_key
     env_file:
-      - .env
+      - ${ENV_FILE:-../.env}
     environment:
       - PORT=${BACKEND_PORT:-8080}
       - WS_PORT=${WS_PORT:-8081}
@@ -44,7 +44,7 @@ services:
       database:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:$$PORT/api/health || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:$${PORT:-8080}/api/health || exit 1"]
       interval: 3s
       timeout: 3s
       retries: 10
