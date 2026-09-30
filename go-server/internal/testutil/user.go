@@ -87,6 +87,13 @@ func UserIDs(users []*models.User) []int64 {
 	return ids
 }
 
+// NonexistentUsername generates a unique username that is guaranteed not to exist in the database.
+func NonexistentUsername(t *testing.T, testDB *bun.DB) string {
+	t.Helper()
+	u, _ := MakeTestUser(t, testDB)
+	return u.Username
+}
+
 func generateRandomString(length int) string {
 	bytes := make([]byte, length/2)
 	if _, err := rand.Read(bytes); err != nil {
