@@ -5,11 +5,20 @@ import (
 	"log/slog"
 )
 
+const errRateLimitExceeded = "You are sending messages too fast. Please wait a moment."
+
 func (c *Client) HandleSendMsg(payload DMPayload) error {
 	if payload.Username == c.Username {
 		slog.Warn("Direct message rejected: self message", "username", c.Username)
 		return nil // Cannot DM yourself
 	}
+
+	if !c.allowChatMessage() {
+		slog.Warn("Direct message rate limit exceeded", "sender", c.Username, "user_id", c.UserID)
+		c.SendError(errRateLimitExceeded)
+		return nil
+	}
+
 	savedMsg, err := c.Hub.store.SaveMessage(context.Background(), c.UserID, payload.Username, payload.Content) //persist message in DB
 	if err != nil {
 		slog.Error("Failed to save direct message in DB", "sender", c.Username, "recipient", payload.Username, "error", err)
