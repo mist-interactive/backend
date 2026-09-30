@@ -54,3 +54,22 @@ func makeAuthHeader(t *testing.T, user *models.User, privKey *rsa.PrivateKey) st
 func doTestRequest(router http.Handler, method, path, authHeader string, payload any) *httptest.ResponseRecorder {
 	return testutil.DoJSONRequest(router, method, path, payload, testutil.WithAuth(authHeader))
 }
+
+// AuthUser embeds models.User and pairs it with its pre-signed Bearer Authorization header.
+type AuthUser struct {
+	*models.User
+	Auth string
+}
+
+// makeAuthUsers creates Bearer authorization headers for each user in users using the provided RSA private key.
+func makeAuthUsers(t *testing.T, users []*models.User, privKey *rsa.PrivateKey) []AuthUser {
+	t.Helper()
+	authUsers := make([]AuthUser, len(users))
+	for i, u := range users {
+		authUsers[i] = AuthUser{
+			User: u,
+			Auth: makeAuthHeader(t, u, privKey),
+		}
+	}
+	return authUsers
+}
