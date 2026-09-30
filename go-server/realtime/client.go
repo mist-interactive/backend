@@ -24,24 +24,46 @@ const (
 
 	// Maximum message size allowed from peer (512 KB).
 	maxMessageSize = 512 * 1024
+
+	// Chat rate limiting parameters
+	chatBurstLimit = 5.0 // Maximum burst capacity of tokens
+	chatRefillRate = 1.0 // Tokens replenished per second
 )
 
 type Client struct {
-	Hub      *Hub
-	Conn     *websocket.Conn //handles network traffic
-	UserID   int64
-	Username string
-	Send     chan []byte // Buffered channel of data waiting to be sent to client
+	Hub        *Hub
+	Conn       *websocket.Conn //handles network traffic
+	UserID     int64
+	Username   string
+	Send       chan []byte // Buffered channel of data waiting to be sent to client
+	tokens     float64     //used for rate limiting
+	lastRefill time.Time   //last time rate limit was checked
 }
 
 func NewClient(hub *Hub, conn *websocket.Conn, userID int64, username string) *Client {
 	return &Client{
-		Hub:      hub,
-		Conn:     conn,
-		UserID:   userID,
-		Username: username,
-		Send:     make(chan []byte, sendBufferSize),
+		Hub:        hub,
+		Conn:       conn,
+		UserID:     userID,
+		Username:   username,
+		Send:       make(chan []byte, sendBufferSize),
+		tokens:     chatBurstLimit,
+		lastRefill: time.Now(),
 	}
+}
+
+// allowChatMessage checks and consumes a token for chat rate limiting using a token bucket.
+func (c *Client) allowChatMessage() bool {
+	now := time.Now()
+	elapsed := now.Sub(c.lastRefill).Seconds()
+	c.tokens = min(chatBurstLimit, c.tokens+elapsed*chatRefillRate)
+	c.lastRefill = now
+
+	if c.tokens >= 1.0 {
+		c.tokens -= 1.0
+		return true
+	}
+	return false
 }
 
 // listens on the Send channel, pushes messages over websocket when channel gets data,
