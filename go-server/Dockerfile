@@ -13,7 +13,7 @@ FROM base AS dev
 
   COPY . .
 
-  EXPOSE 8080
+  EXPOSE 8080 8081
 
   CMD ["air"]
 
@@ -35,6 +35,6 @@ WORKDIR /app
 
 COPY --from=builder /app/backend /usr/local/bin/backend
 
-EXPOSE 8080
+EXPOSE 8080 8081
 
 CMD ["backend"]

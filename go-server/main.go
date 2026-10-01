@@ -82,26 +82,45 @@ func main() {
 		os.Exit(1)
 	}
 
+	port := getEnv("PORT", "8080")
+	wsPort := getEnv("WS_PORT", "8081")
+
 	// WS microservice
-	store := realtime.NewHttpDataStore("http://localhost:8080", apiKey)
+	store := realtime.NewHttpDataStore(fmt.Sprintf("http://localhost:%s", port), apiKey)
 	hub := realtime.NewHub(store)
 	go hub.Run()
 
 	h := handlers.NewHandler(postgres, rsaKey, pubKey, apiKey, hub)
 	h.StartBackgroundSweeper(context.Background(), models.DefaultSweepInterval, models.DefaultHeartbeatTimeout)
 
+	wsMux := http.NewServeMux()
+	wsMux.HandleFunc("GET /api/ws", hub.ServeWS(h.TokenValidator))
+
+	go func() {
+		slog.Info("WebSocket microservice listening", "port", wsPort)
+		if err := http.ListenAndServe(":"+wsPort, wsMux); err != nil && err != http.ErrServerClosed {
+			slog.Error("WebSocket server terminated unexpectedly", "error", err)
+		}
+	}()
+
 	mux := http.NewServeMux()
 	mux.Handle("/debug/pprof/", http.DefaultServeMux)
 	h.RegisterRoutes(mux)
-	mux.HandleFunc("GET /api/ws", hub.ServeWS(h.TokenValidator))
 
 	loggedHandler := handlers.RequestLogger(mux)
 
-	slog.Info("Server starting", "port", 8080, "env", devMode, "log_level", logLevel.String())
-	if err := http.ListenAndServe(":8080", loggedHandler); err != nil {
+	slog.Info("Server starting", "port", port, "env", devMode, "log_level", logLevel.String())
+	if err := http.ListenAndServe(":"+port, loggedHandler); err != nil {
 		slog.Error("Server terminated unexpectedly", "error", err)
 		os.Exit(1)
 	}
+}
+
+func getEnv(key, fallback string) string {
+	if val := os.Getenv(key); val != "" {
+		return val
+	}
+	return fallback
 }
 
 func dummy() {

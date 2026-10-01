@@ -18,10 +18,16 @@ import (
 func InitDB() (*bun.DB, error) {
 	_ = godotenv.Load("../.env")
 
-	user := os.Getenv("DB_USER")
+	user := os.Getenv("POSTGRES_USER")
+	if user == "" {
+		return nil, fmt.Errorf("POSTGRES_USER is not set")
+	}
+	dbName := os.Getenv("POSTGRES_DB")
+	if dbName == "" {
+		return nil, fmt.Errorf("POSTGRES_DB is not set")
+	}
 	host := os.Getenv("DB_HOST")
 	port := os.Getenv("DB_PORT")
-	dbName := os.Getenv("DB_NAME")
 	sslMode := os.Getenv("DB_SSLMODE")
 	password := getDBPassword()
 
@@ -53,6 +59,9 @@ func InitDB() (*bun.DB, error) {
 }
 
 func getDBPassword() string {
+	if password := os.Getenv("POSTGRES_PASSWORD"); password != "" {
+		return password
+	}
 	if password := os.Getenv("DB_PASSWORD"); password != "" { //for local testing
 		return password
 	}

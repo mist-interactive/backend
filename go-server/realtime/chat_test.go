@@ -51,6 +51,7 @@ func TestChat_RateLimit(t *testing.T) {
 				hub, clients := setupTestHub(t, "alice")
 				alice := clients["alice"]
 				alice.tokens = 0
+				alice.lastRefill = time.Now()
 
 				_ = alice.HandleSendMsg(DMPayload{Username: "bob", Content: "spam"})
 
