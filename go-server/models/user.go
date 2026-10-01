@@ -1,6 +1,7 @@
 package models
 
 import (
+	"strings"
 	"time"
 
 	"github.com/uptrace/bun"
@@ -26,8 +27,12 @@ type RegisterRequest struct {
 }
 
 type LoginRequest struct {
-	Username string `json:"username" validate:"required,min=3,max=50"`
+	Username string `json:"username" validate:"required,min=3,max=255"`
 	Password string `json:"password" validate:"required,min=8,max=72"`
+}
+
+func (r *LoginRequest) Sanitize() {
+	r.Username = strings.TrimSpace(r.Username)
 }
 
 type ProfilePatchInput struct {

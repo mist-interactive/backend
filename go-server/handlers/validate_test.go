@@ -76,3 +76,56 @@ func TestDecodeAndValidate_RegisterRequest(t *testing.T) {
 		})
 	}
 }
+
+func TestDecodeAndValidate_LoginRequest(t *testing.T) {
+	tests := []struct {
+		name        string
+		jsonBody    string
+		expectError bool
+	}{
+		{
+			name:        "Valid Request with Username",
+			jsonBody:    `{"username": "paavo", "password": "password123"}`,
+			expectError: false,
+		},
+		{
+			name:        "Valid Request with Email in Username field",
+			jsonBody:    `{"username": "paavo@student.hive.fi", "password": "password123"}`,
+			expectError: false,
+		},
+		{
+			name:        "Invalid JSON Syntax",
+			jsonBody:    `{"username": "paavo", "password":`,
+			expectError: true,
+		},
+		{
+			name:        "Missing Identifier",
+			jsonBody:    `{"password": "password123"}`,
+			expectError: true,
+		},
+		{
+			name:        "Identifier Too Short",
+			jsonBody:    `{"username": "p", "password": "password123"}`,
+			expectError: true,
+		},
+		{
+			name:        "Password Too Short",
+			jsonBody:    `{"username": "paavo", "password": "123"}`,
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest("POST", "/api/login", strings.NewReader(tt.jsonBody))
+			req.Header.Set("Content-Type", "application/json")
+			_, err := handlers.DecodeAndValidate[models.LoginRequest](req)
+			if tt.expectError && err == nil {
+				t.Errorf("expected an error but got none")
+			}
+			if !tt.expectError && err != nil {
+				t.Errorf("did not expect an error but got: %v", err)
+			}
+		})
+	}
+}
