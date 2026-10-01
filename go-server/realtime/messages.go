@@ -38,7 +38,14 @@ const (
 
 	// Generic error notification
 	TypeError MessageType = "error"
+
+	// Session displacement notification
+	TypeSessionTerminated MessageType = "session_terminated"
 )
+
+type SessionTerminatedPayload struct {
+	Reason string `json:"reason"`
+}
 
 type ErrorPayload struct {
 	Message string `json:"message"`

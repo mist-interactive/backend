@@ -40,6 +40,16 @@ func (h *Handler) CheckPassword(w http.ResponseWriter, r *http.Request) {
 
 	slog.Info("login successful", "username", user.Username, "user_id", user.ID)
 
+	// Invalidate any existing sessions for this user so only one session is active
+	_, err = h.DB.NewDelete().
+		Model((*models.Session)(nil)).
+		Where("user_id = ?", user.ID).
+		Exec(r.Context())
+	if err != nil {
+		HandleDBError(w, err, "Session invalidation")
+		return
+	}
+
 	sessionToken := rand.Text()
 	sessionDuration := 24 * time.Hour
 	newSession := &models.Session{

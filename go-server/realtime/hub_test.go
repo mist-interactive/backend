@@ -283,3 +283,48 @@ func TestHubMatchReconnections(t *testing.T) {
 		})
 	}
 }
+
+func TestHubSessionDisplacement(t *testing.T) {
+	t.Run("Duplicate connection sends session_displaced and closes old client channel", func(t *testing.T) {
+		store := &mockDataStore{}
+		hub := NewHub(store)
+
+		client1 := &Client{Hub: hub, UserID: 42, Username: "alice", Send: make(chan []byte, 10)}
+		hub.clients[client1.UserID] = client1
+
+		// Connect client2 with same UserID
+		client2 := &Client{Hub: hub, UserID: 42, Username: "alice", Send: make(chan []byte, 10)}
+		hub.handleRegister(client2)
+
+		// Verify client1 received session_displaced message
+		msg, ok := readWSMessage(t, client1.Send, 50*time.Millisecond)
+		if !ok {
+			t.Fatalf("client1 did not receive displacement message")
+		}
+		if msg.Type != TypeSessionTerminated {
+			t.Errorf("expected message type %s, got %s", TypeSessionTerminated, msg.Type)
+		}
+		payload := parsePayload[SessionTerminatedPayload](t, msg.Payload)
+		if payload.Reason != "logged_in_elsewhere" {
+			t.Errorf("expected reason 'logged_in_elsewhere', got %q", payload.Reason)
+		}
+
+		// Verify client1 channel is closed
+		_, channelOpen := <-client1.Send
+		if channelOpen {
+			t.Errorf("expected client1.Send channel to be closed")
+		}
+
+		// Verify client2 is registered as current client
+		if hub.clients[42] != client2 {
+			t.Errorf("expected hub.clients to point to client2")
+		}
+
+		// Verify unregistering displaced client1 does not remove active client2
+		hub.handleUnregister(client1)
+		if hub.clients[42] != client2 {
+			t.Errorf("expected client2 to remain active after displaced client1 unregisters")
+		}
+	})
+}
+
