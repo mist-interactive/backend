@@ -66,9 +66,10 @@ func (h *Hub) Run() {
 func (h *Hub) handleRegister(client *Client) {
 	if oldClient, alreadyConnected := h.clients[client.UserID]; alreadyConnected {
 		slog.Info("Disconnecting previous connection for user", "user_id", client.UserID, "username", client.Username)
-		if oldClient.Conn != nil {
-			oldClient.Conn.Close()
+		if data, err := EncodeMessage(TypeSessionTerminated, SessionTerminatedPayload{Reason: "logged_in_elsewhere"}); err == nil {
+			oldClient.TrySend(data)
 		}
+		close(oldClient.Send)
 	}
 	h.clients[client.UserID] = client
 	slog.Info("Client registered in hub", "user_id", client.UserID, "username", client.Username, "total_clients", len(h.clients))
