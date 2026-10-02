@@ -228,3 +228,39 @@ func TestLogin_SingleSessionEnforcement(t *testing.T) {
 		}
 	})
 }
+
+func TestClearSessionCookie(t *testing.T) {
+	rec := httptest.NewRecorder()
+	handlers.ClearSessionCookie(rec)
+
+	cookies := rec.Result().Cookies()
+	var sessionCookie *http.Cookie
+	for _, c := range cookies {
+		if c.Name == handlers.SessionCookieName {
+			sessionCookie = c
+			break
+		}
+	}
+
+	if sessionCookie == nil {
+		t.Fatalf("expected '%s' cookie to be present in response headers", handlers.SessionCookieName)
+	}
+	if sessionCookie.Value != "" {
+		t.Errorf("cookie value: got %q, want empty string", sessionCookie.Value)
+	}
+	if sessionCookie.MaxAge >= 0 {
+		t.Errorf("cookie maxAge: got %d, want < 0", sessionCookie.MaxAge)
+	}
+	if !sessionCookie.HttpOnly {
+		t.Errorf("cookie HttpOnly: got %v, want true", sessionCookie.HttpOnly)
+	}
+	if !sessionCookie.Secure {
+		t.Errorf("cookie Secure: got %v, want true", sessionCookie.Secure)
+	}
+	if sessionCookie.SameSite != http.SameSiteStrictMode {
+		t.Errorf("cookie SameSite: got %v, want %v", sessionCookie.SameSite, http.SameSiteStrictMode)
+	}
+	if sessionCookie.Path != "/" {
+		t.Errorf("cookie Path: got %q, want '/'", sessionCookie.Path)
+	}
+}

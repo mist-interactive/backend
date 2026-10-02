@@ -7,8 +7,10 @@ import (
 	"dbBackend/internal/testutil"
 	"dbBackend/models"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/uptrace/bun"
 )
@@ -24,6 +26,7 @@ func setupProfileTestRouter(t *testing.T) (*handlers.Handler, http.Handler, *rsa
 	protected.HandleFunc("GET /profile", h.ProfileGet)
 	protected.HandleFunc("PATCH /profile", h.ProfilePatch)
 	protected.HandleFunc("GET /profile/{username}", h.ProfileGetByUsername)
+	protected.HandleFunc("DELETE /profile", h.ProfileDelete)
 
 	return h, mux, privateKey
 }
@@ -298,4 +301,208 @@ func TestProfilePatch(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestProfileDelete(t *testing.T) {
+	ctx := context.Background()
+	_, router, privKey := setupProfileTestRouter(t)
+
+	t.Run("anonymizes user profile, purges sessions, and clears cookie", func(t *testing.T) {
+		users := makeAuthUsers(t, testutil.MakeNTestUsers(t, testDB, 2), privKey)
+		targetUser := users[0]
+		viewerUser := users[1]
+
+		// Register explicit user cleanup by ID because ProfileDelete changes targetUser.Username
+		// to "deleted_user_<id>", which causes MakeNTestUsers' username-based cleanup to miss it.
+		t.Cleanup(func() {
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+			_, _ = testDB.NewDelete().
+				Model((*models.User)(nil)).
+				Where("id = ?", targetUser.ID).
+				Exec(cleanupCtx)
+		})
+
+		// Populate bio and avatar to verify they get wiped upon deletion
+		avatarURL := "https://example.com/avatars/user.jpg"
+		targetUser.Bio = "Hello world, I will be deleted"
+		targetUser.AvatarURL = &avatarURL
+		if _, err := testDB.NewUpdate().
+			Model(targetUser.User).
+			Column("bio", "avatar_url").
+			WherePK().
+			Exec(ctx); err != nil {
+			t.Fatalf("failed to update target user with bio and avatar: %v", err)
+		}
+
+		// Seed active sessions in DB to verify they are purged
+		sessions := []*models.Session{
+			{
+				UserID:       targetUser.ID,
+				SessionToken: "active_token_1_" + targetUser.Username,
+				ExpiresAt:    time.Now().Add(24 * time.Hour),
+			},
+			{
+				UserID:       targetUser.ID,
+				SessionToken: "active_token_2_" + targetUser.Username,
+				ExpiresAt:    time.Now().Add(48 * time.Hour),
+			},
+		}
+		t.Cleanup(func() {
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+			_, _ = testDB.NewDelete().
+				Model((*models.Session)(nil)).
+				Where("user_id = ?", targetUser.ID).
+				Exec(cleanupCtx)
+		})
+		if _, err := testDB.NewInsert().Model(&sessions).Exec(ctx); err != nil {
+			t.Fatalf("failed to insert active sessions: %v", err)
+		}
+
+		// Execute DELETE /api/protected/profile
+		rec := doTestRequest(router, http.MethodDelete, "/api/protected/profile", targetUser.Auth, nil)
+
+		if rec.Code != http.StatusNoContent {
+			t.Fatalf("expected status 204 No Content, got %d. Body: %s", rec.Code, rec.Body.String())
+		}
+
+		if rec.Body.Len() != 0 {
+			t.Errorf("expected empty body, got %q", rec.Body.String())
+		}
+
+		// Verify ClearSessionCookie was called
+		var sessionCookie *http.Cookie
+		for _, c := range rec.Result().Cookies() {
+			if c.Name == handlers.SessionCookieName {
+				sessionCookie = c
+				break
+			}
+		}
+		if sessionCookie == nil {
+			t.Errorf("expected %s cookie in response", handlers.SessionCookieName)
+		} else {
+			if sessionCookie.Value != "" {
+				t.Errorf("cookie value: got %q, want empty string", sessionCookie.Value)
+			}
+			if sessionCookie.MaxAge >= 0 {
+				t.Errorf("cookie maxAge: got %d, want < 0", sessionCookie.MaxAge)
+			}
+			if !sessionCookie.HttpOnly {
+				t.Errorf("cookie HttpOnly: got %v, want true", sessionCookie.HttpOnly)
+			}
+			if !sessionCookie.Secure {
+				t.Errorf("cookie Secure: got %v, want true", sessionCookie.Secure)
+			}
+			if sessionCookie.SameSite != http.SameSiteStrictMode {
+				t.Errorf("cookie SameSite: got %v, want %v", sessionCookie.SameSite, http.SameSiteStrictMode)
+			}
+		}
+
+		// Verify DB user record is anonymized
+		var anonymizedUser models.User
+		if err := testDB.NewSelect().
+			Model(&anonymizedUser).
+			Where("id = ?", targetUser.ID).
+			Scan(ctx); err != nil {
+			t.Fatalf("failed to query anonymized user: %v", err)
+		}
+
+		expectedUsername := fmt.Sprintf("deleted_user_%d", targetUser.ID)
+		expectedEmail := fmt.Sprintf("deleted_user_%d@internal", targetUser.ID)
+		if anonymizedUser.Username != expectedUsername {
+			t.Errorf("username: got %q, want %q", anonymizedUser.Username, expectedUsername)
+		}
+		if anonymizedUser.Email != expectedEmail {
+			t.Errorf("email: got %q, want %q", anonymizedUser.Email, expectedEmail)
+		}
+		if anonymizedUser.PWHash != "deleted" {
+			t.Errorf("password_hash: got %q, want 'deleted'", anonymizedUser.PWHash)
+		}
+		if anonymizedUser.Bio != "" {
+			t.Errorf("bio: got %q, want empty string", anonymizedUser.Bio)
+		}
+		if anonymizedUser.AvatarURL != nil {
+			t.Errorf("avatar_url: got %v, want nil", anonymizedUser.AvatarURL)
+		}
+
+		// Verify all active sessions were purged
+		sessionCount, err := testDB.NewSelect().
+			Model((*models.Session)(nil)).
+			Where("user_id = ?", targetUser.ID).
+			Count(ctx)
+		if err != nil {
+			t.Fatalf("failed to count sessions after deletion: %v", err)
+		}
+		if sessionCount != 0 {
+			t.Errorf("session count: got %d, want 0", sessionCount)
+		}
+
+		// Verify old username returns 404
+		oldProfileRec := doTestRequest(router, http.MethodGet, "/api/protected/profile/"+targetUser.Username, viewerUser.Auth, nil)
+		if oldProfileRec.Code != http.StatusNotFound {
+			t.Errorf("expected status 404 for deleted username, got %d", oldProfileRec.Code)
+		}
+
+		// Verify viewing anonymized username returns profile without email
+		anonProfileRec := doTestRequest(router, http.MethodGet, "/api/protected/profile/"+expectedUsername, viewerUser.Auth, nil)
+		if anonProfileRec.Code != http.StatusOK {
+			t.Fatalf("expected status 200 for anonymized profile, got %d", anonProfileRec.Code)
+		}
+		anonProfile := testutil.DecodeJSON[models.UserProfile](t, anonProfileRec)
+		if anonProfile.Username != expectedUsername {
+			t.Errorf("anonymized profile username: got %q, want %q", anonProfile.Username, expectedUsername)
+		}
+		if anonProfile.Email != nil {
+			t.Errorf("anonymized profile email: got %v, want nil", anonProfile.Email)
+		}
+		if anonProfile.Bio != "" {
+			t.Errorf("anonymized profile bio: got %q, want empty string", anonProfile.Bio)
+		}
+		if anonProfile.AvatarURL != nil {
+			t.Errorf("anonymized profile avatarUrl: got %v, want nil", anonProfile.AvatarURL)
+		}
+	})
+
+	t.Run("deleted username is released and can be registered by new user", func(t *testing.T) {
+		users := makeAuthUsers(t, testutil.MakeNTestUsers(t, testDB, 1), privKey)
+		targetUser := users[0]
+		originalUsername := targetUser.Username
+
+		t.Cleanup(func() {
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+			_, _ = testDB.NewDelete().
+				Model((*models.User)(nil)).
+				Where("id = ?", targetUser.ID).
+				Exec(cleanupCtx)
+		})
+
+		rec := doTestRequest(router, http.MethodDelete, "/api/protected/profile", targetUser.Auth, nil)
+		if rec.Code != http.StatusNoContent {
+			t.Fatalf("expected status 204 No Content, got %d", rec.Code)
+		}
+
+		// The original username should now be free to use
+		newUser := &models.User{
+			Username: originalUsername,
+			Email:    "reclaimed_" + originalUsername + "@testing.internal",
+			PWHash:   "$2b$12$SX55NTDU0FL4DrpQm5kq.OLKcDrrMnS6siaY3Z80.8ki5zagqx08m",
+		}
+		t.Cleanup(func() {
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+			_, _ = testDB.NewDelete().
+				Model((*models.User)(nil)).
+				Where("id = ?", newUser.ID).
+				Exec(cleanupCtx)
+		})
+
+		if _, err := testDB.NewInsert().Model(newUser).Exec(ctx); err != nil {
+			t.Fatalf("failed to insert new user with released username %q: %v", originalUsername, err)
+		}
+		if newUser.ID == targetUser.ID {
+			t.Errorf("expected different ID for new user, got same ID %d", newUser.ID)
+		}
+	})
 }
