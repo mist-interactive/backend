@@ -40,7 +40,8 @@ func MakeTestUser(t *testing.T, testDB *bun.DB) (*models.User, func()) {
 	return &models.User{
 			Username: uniqueName,
 			Email:    uniqueName + "@testing.internal",
-			PWHash:   "$2b$12$SX55NTDU0FL4DrpQm5kq.OLKcDrrMnS6siaY3Z80.8ki5zagqx08m",
+			// Precomputed bcrypt.MinCost (cost 4) hash for "password123" to keep tests fast under -race
+			PWHash:   "$2a$04$f1H8zGuelJoYUonfyhkmPu9aMhCgP3vXyoDKAoHYXdBt/pDs8k4Kq",
 		}, func() {
 			cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 3*time.Second)
 			defer cleanupCancel()
