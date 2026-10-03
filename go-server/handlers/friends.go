@@ -158,6 +158,17 @@ func (h *Handler) FriendRequestAnswer(w http.ResponseWriter, r *http.Request) {
 			}); err != nil {
 				slog.Debug("could not notify requester", "requester_id", f.UserID, "error", err)
 			}
+
+			if f.Status == models.StatusAccepted {
+				requester, err := h.getUserByID(r.Context(), f.UserID)
+				if err != nil {
+					slog.Error("failed to get requester profile for mutual presence notification", "error", err, "user_id", f.UserID)
+				} else {
+					if err := h.Notifier.NotifyMutualPresence(f.UserID, responder.ID, requester.Username, responder.Username); err != nil {
+						slog.Debug("could not notify mutual presence on friend accept", "requester_id", f.UserID, "responder_id", responder.ID, "error", err)
+					}
+				}
+			}
 		}
 	}
 

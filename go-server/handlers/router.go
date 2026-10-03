@@ -46,6 +46,7 @@ func (g *Group) HandleFunc(pattern string, handler http.HandlerFunc) {
 type EventNotifier interface {
 	NotifyFriendRequest(targetUserID int64, item models.FriendshipItemResponse) error
 	NotifyFriendResponse(targetUserID int64, item models.FriendshipItemResponse) error
+	NotifyMutualPresence(userAID, userBID int64, usernameA, usernameB string) error
 	NotifyFriendDeleted(targetUserID int64, friendshipID int64, deleterUsername string) error
 	MatchFinished(payload models.MatchFinishedPayload) error
 }

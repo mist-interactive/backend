@@ -29,6 +29,12 @@ type mockEventNotifier struct {
 		friendshipID    int64
 		deleterUsername string
 	}
+	mutualPresenceRecv []struct {
+		userAID   int64
+		userBID   int64
+		usernameA string
+		usernameB string
+	}
 	returnErr bool
 }
 
@@ -65,6 +71,19 @@ func (m *mockEventNotifier) NotifyFriendDeleted(targetUserID int64, friendshipID
 		friendshipID    int64
 		deleterUsername string
 	}{targetUserID, friendshipID, deleterUsername})
+	return nil
+}
+
+func (m *mockEventNotifier) NotifyMutualPresence(userAID, userBID int64, usernameA, usernameB string) error {
+	if m.returnErr {
+		return fmt.Errorf("mock notifier error")
+	}
+	m.mutualPresenceRecv = append(m.mutualPresenceRecv, struct {
+		userAID   int64
+		userBID   int64
+		usernameA string
+		usernameB string
+	}{userAID, userBID, usernameA, usernameB})
 	return nil
 }
 
@@ -551,6 +570,7 @@ func TestFriendRequestAnswer_DispatchesNotification(t *testing.T) {
 	// Clear out any notification recorded during creation
 	mock.friendRequestsRecv = nil
 	mock.friendResponsesRecv = nil
+	mock.mutualPresenceRecv = nil
 
 	path := fmt.Sprintf("/api/protected/friends/%d", friendshipID)
 	rec := doTestRequest(env.router, http.MethodPatch, path, bob.Auth, models.FriendRequestAnswer{Status: models.StatusAccepted})
@@ -572,6 +592,43 @@ func TestFriendRequestAnswer_DispatchesNotification(t *testing.T) {
 	if r.item.Status != models.StatusAccepted || r.item.IsIncoming {
 		t.Errorf("payload status/incoming: got status=%s is_incoming=%v, want status=accepted is_incoming=false",
 			r.item.Status, r.item.IsIncoming)
+	}
+
+	if len(mock.mutualPresenceRecv) != 1 {
+		t.Fatalf("mutual presence count: got %d, want 1", len(mock.mutualPresenceRecv))
+	}
+	mp := mock.mutualPresenceRecv[0]
+	if mp.userAID != alice.ID || mp.userBID != bob.ID || mp.usernameA != alice.Username || mp.usernameB != bob.Username {
+		t.Errorf("mutual presence: got (userAID=%d, userBID=%d, userA=%s, userB=%s), want (userAID=%d, userBID=%d, userA=%s, userB=%s)",
+			mp.userAID, mp.userBID, mp.usernameA, mp.usernameB, alice.ID, bob.ID, alice.Username, bob.Username)
+	}
+}
+
+// TestFriendRequestAnswer_BlockedDoesNotDispatchPresence verifies that blocking a friend request
+// dispatches a response event but does NOT dispatch mutual presence updates.
+func TestFriendRequestAnswer_BlockedDoesNotDispatchPresence(t *testing.T) {
+	mock := &mockEventNotifier{}
+	env := setupFriendsTestEnv(t, 2, mock)
+	alice := env.users[0]
+	bob := env.users[1]
+
+	friendshipID := createPendingFriendship(t, env.router, alice.Auth, bob.Username)
+
+	mock.friendRequestsRecv = nil
+	mock.friendResponsesRecv = nil
+	mock.mutualPresenceRecv = nil
+
+	path := fmt.Sprintf("/api/protected/friends/%d", friendshipID)
+	rec := doTestRequest(env.router, http.MethodPatch, path, bob.Auth, models.FriendRequestAnswer{Status: models.StatusBlocked})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want 200 OK: %s", rec.Code, rec.Body.String())
+	}
+
+	if len(mock.friendResponsesRecv) != 1 {
+		t.Fatalf("responses count: got %d, want 1", len(mock.friendResponsesRecv))
+	}
+	if len(mock.mutualPresenceRecv) != 0 {
+		t.Errorf("mutual presence count: got %d, want 0 on blocked request", len(mock.mutualPresenceRecv))
 	}
 }
 
