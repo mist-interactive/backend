@@ -9,6 +9,8 @@ import (
 	"math"
 	"net/http"
 	"time"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 func (h *Handler) ProfileGet(w http.ResponseWriter, r *http.Request) {
@@ -244,5 +246,59 @@ func (h *Handler) ProfileDelete(w http.ResponseWriter, r *http.Request) {
 	//Set a non-valid Cookie to replace the old one
 	ClearSessionCookie(w)
 	h.InvalidateLeaderboardCache()
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) PasswordChangePatch(w http.ResponseWriter, r *http.Request) {
+	userID, ok := UserIDFromContext(r.Context())
+	if !ok || userID == 0 {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	input, err := DecodeAndValidate[models.PasswordChangeInput](r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	user, err := h.getUserByID(r.Context(), userID)
+	if err != nil {
+		HandleDBError(w, err, "User lookup for password change")
+		return
+	}
+
+	// Verify old password
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PWHash), []byte(input.OldPassword)); err != nil {
+		slog.Warn("Password change rejected: incorrect current password", "user_id", userID)
+		http.Error(w, "Incorrect current password", http.StatusUnauthorized)
+		return
+	}
+
+	if input.OldPassword == input.NewPassword {
+		http.Error(w, "New password cannot be the same as current password", http.StatusBadRequest)
+		return
+	}
+
+	hashedBytes, err := bcrypt.GenerateFromPassword([]byte(input.NewPassword), bcrypt.DefaultCost)
+	if err != nil {
+		slog.Error("Failed to hash new password", "error", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	now := time.Now()
+	_, err = h.DB.NewUpdate().
+		Model((*models.User)(nil)).
+		Where("id = ?", userID).
+		Set("password_hash = ?", string(hashedBytes)).
+		Set("updated_at = ?", now).
+		Exec(r.Context())
+	if err != nil {
+		HandleDBError(w, err, "Updating password")
+		return
+	}
+
+	slog.Info("Password updated successfully", "user_id", userID)
 	w.WriteHeader(http.StatusNoContent)
 }

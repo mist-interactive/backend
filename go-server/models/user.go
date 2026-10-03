@@ -41,6 +41,11 @@ type ProfilePatchInput struct {
 	Email     *string `json:"email" validate:"omitempty,email,max=255"`
 }
 
+type PasswordChangeInput struct {
+	OldPassword string `json:"oldPassword" validate:"required,min=8,max=72"`
+	NewPassword string `json:"newPassword" validate:"required,min=8,max=72,password_complexity"`
+}
+
 type UserStats struct {
 	GamesPlayed int     `json:"games_played" bun:"games_played"`
 	Wins        int     `json:"wins" bun:"wins"`
