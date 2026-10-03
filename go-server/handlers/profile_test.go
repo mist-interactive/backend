@@ -313,7 +313,7 @@ func TestProfileDelete(t *testing.T) {
 		viewerUser := users[1]
 
 		// Register explicit user cleanup by ID because ProfileDelete changes targetUser.Username
-		// to "deleted_user_<id>", which causes MakeNTestUsers' username-based cleanup to miss it.
+		// to "deleted_user~<id>", which causes MakeNTestUsers' username-based cleanup to miss it.
 		t.Cleanup(func() {
 			cleanupCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 			defer cancel()
@@ -408,8 +408,8 @@ func TestProfileDelete(t *testing.T) {
 			t.Fatalf("failed to query anonymized user: %v", err)
 		}
 
-		expectedUsername := fmt.Sprintf("deleted_user_%d", targetUser.ID)
-		expectedEmail := fmt.Sprintf("deleted_user_%d@internal", targetUser.ID)
+		expectedUsername := fmt.Sprintf("deleted_user~%d", targetUser.ID)
+		expectedEmail := fmt.Sprintf("deleted_user~%d@internal", targetUser.ID)
 		if anonymizedUser.Username != expectedUsername {
 			t.Errorf("username: got %q, want %q", anonymizedUser.Username, expectedUsername)
 		}

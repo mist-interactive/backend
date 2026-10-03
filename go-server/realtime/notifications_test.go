@@ -128,11 +128,12 @@ func TestHub_NotifyFriendResponse(t *testing.T) {
 }
 
 // TestHub_NotifyFriendDeleted verifies that NotifyFriendDeleted encodes a TypeFriendDeleted
-// envelope with the deleted friendship ID and queues it onto the Hub's unicast channel for the other participant.
+// envelope with the deleted friendship ID and username and queues it onto the Hub's unicast channel for the other participant.
 func TestHub_NotifyFriendDeleted(t *testing.T) {
 	hub := newTestHub()
 
-	err := hub.NotifyFriendDeleted(testDeletedFriendID, testDeletedID)
+	testDeleterUsername := "bob"
+	err := hub.NotifyFriendDeleted(testDeletedFriendID, testDeletedID, testDeleterUsername)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -140,6 +141,9 @@ func TestHub_NotifyFriendDeleted(t *testing.T) {
 	payload := expectUnicastMessage[models.FriendDeletePayload](t, hub.unicast, testDeletedFriendID, TypeFriendDeleted)
 	if payload.FriendshipID != testDeletedID {
 		t.Errorf("got friendship_id %d, want %d", payload.FriendshipID, testDeletedID)
+	}
+	if payload.Username != testDeleterUsername {
+		t.Errorf("got username %q, want %q", payload.Username, testDeleterUsername)
 	}
 }
 

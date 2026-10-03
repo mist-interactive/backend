@@ -240,7 +240,7 @@ func TestLeaderboardGet_ExcludesDeletedUsers(t *testing.T) {
 		Table("users").
 		Where("id = ?", delUser.ID).
 		Set("password_hash = ?", "deleted").
-		Set("username = ?", fmt.Sprintf("deleted_user_%d", delUser.ID)).
+		Set("username = ?", fmt.Sprintf("deleted_user~%d", delUser.ID)).
 		Exec(ctx)
 	if err != nil {
 		t.Fatalf("failed to anonymize user: %v", err)

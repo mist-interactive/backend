@@ -5,6 +5,7 @@ import (
 	"dbBackend/models"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -21,19 +22,24 @@ func (h *Handler) CheckPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	identifier := request.Username
 	var user models.User
-	err = h.DB.NewSelect().
-		Model(&user).
-		Where("username = ?", request.Username).
-		Scan(r.Context())
+	query := h.DB.NewSelect().Model(&user)
+
+	if strings.Contains(identifier, "@") {
+		query = query.Where("LOWER(email) = LOWER(?)", identifier)
+	} else {
+		query = query.Where("username = ?", identifier)
+	}
+	err = query.Scan(r.Context())
 	if err != nil {
-		slog.Warn("login failed: user not found", "username", request.Username)
+		slog.Warn("login failed: user not found", "identifier", identifier)
 		http.Error(w, "User not found", http.StatusNotFound)
 		return
 	}
 	err = bcrypt.CompareHashAndPassword([]byte(user.PWHash), []byte(request.Password))
 	if err != nil {
-		slog.Warn("login failed: incorrect password", "username", request.Username, "user_id", user.ID)
+		slog.Warn("login failed: incorrect password", "identifier", identifier, "user_id", user.ID)
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}

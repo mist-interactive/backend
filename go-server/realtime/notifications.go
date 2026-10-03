@@ -25,8 +25,11 @@ func (h *Hub) NotifyFriendResponse(targetUserID int64, item models.FriendshipIte
 }
 
 // NotifyFriendDeleted delivers a real-time notification to a target user when a friendship is deleted.
-func (h *Hub) NotifyFriendDeleted(targetUserID int64, friendshipID int64) error {
-	data, err := EncodeMessage(TypeFriendDeleted, models.FriendDeletePayload{FriendshipID: friendshipID})
+func (h *Hub) NotifyFriendDeleted(targetUserID int64, friendshipID int64, deleterUsername string) error {
+	data, err := EncodeMessage(TypeFriendDeleted, models.FriendDeletePayload{
+		FriendshipID: friendshipID,
+		Username:     deleterUsername,
+	})
 	if err != nil {
 		return fmt.Errorf("failed to encode friend deleted notification: %w", err)
 	}

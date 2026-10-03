@@ -26,7 +26,7 @@ func (m *mockMatchNotifier) NotifyFriendRequest(targetUserID int64, item models.
 func (m *mockMatchNotifier) NotifyFriendResponse(targetUserID int64, item models.FriendshipItemResponse) error {
 	return nil
 }
-func (m *mockMatchNotifier) NotifyFriendDeleted(targetUserID int64, friendshipID int64) error {
+func (m *mockMatchNotifier) NotifyFriendDeleted(targetUserID int64, friendshipID int64, deleterUsername string) error {
 	return nil
 }
 func (m *mockMatchNotifier) NotifyMutualPresence(userAID, userBID int64, usernameA, usernameB string) error {

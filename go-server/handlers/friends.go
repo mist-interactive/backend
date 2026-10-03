@@ -200,12 +200,31 @@ func (h *Handler) FriendDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	otherUserID := f.UserID
+	if otherUserID == userID {
+		otherUserID = f.FriendID
+	}
+
+	// Mark any unread messages between these two users as read so no orphan unread count lingers in DB
+	_, err = h.DB.NewUpdate().
+		Model((*models.Message)(nil)).
+		Where("((sender_id = ? AND recipient_id = ?) OR (sender_id = ? AND recipient_id = ?)) AND is_read = FALSE",
+			userID, otherUserID, otherUserID, userID).
+		Set("is_read = TRUE").
+		Exec(r.Context())
+	if err != nil {
+		slog.Warn("Failed to mark unread messages as read on friend deletion", "user_id", userID, "other_user_id", otherUserID, "error", err)
+	}
+
 	if h.Notifier != nil {
-		otherUserID := f.UserID
-		if otherUserID == userID {
-			otherUserID = f.FriendID
+		deletingUser, err := h.getUserByID(r.Context(), userID)
+		deleterUsername := ""
+		if err != nil {
+			slog.Error("failed to get deleting user profile for friend deleted notification", "error", err, "user_id", userID)
+		} else {
+			deleterUsername = deletingUser.Username
 		}
-		if err := h.Notifier.NotifyFriendDeleted(otherUserID, f.ID); err != nil {
+		if err := h.Notifier.NotifyFriendDeleted(otherUserID, f.ID, deleterUsername); err != nil {
 			slog.Debug("could not notify other user of friendship deletion", "target_id", otherUserID, "error", err)
 		}
 	}

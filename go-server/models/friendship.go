@@ -44,6 +44,7 @@ type FriendshipItemResponse struct {
 }
 
 type FriendDeletePayload struct {
-	FriendshipID int64 `json:"friendship_id"`
+	FriendshipID int64  `json:"friendship_id"`
+	Username     string `json:"username,omitempty"`
 }
 

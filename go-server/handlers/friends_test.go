@@ -25,8 +25,9 @@ type mockEventNotifier struct {
 		item         models.FriendshipItemResponse
 	}
 	friendDeletedRecv []struct {
-		targetUserID int64
-		friendshipID int64
+		targetUserID    int64
+		friendshipID    int64
+		deleterUsername string
 	}
 	mutualPresenceRecv []struct {
 		userAID   int64
@@ -61,14 +62,15 @@ func (m *mockEventNotifier) NotifyFriendResponse(targetUserID int64, item models
 	return nil
 }
 
-func (m *mockEventNotifier) NotifyFriendDeleted(targetUserID int64, friendshipID int64) error {
+func (m *mockEventNotifier) NotifyFriendDeleted(targetUserID int64, friendshipID int64, deleterUsername string) error {
 	if m.returnErr {
 		return fmt.Errorf("mock notifier error")
 	}
 	m.friendDeletedRecv = append(m.friendDeletedRecv, struct {
-		targetUserID int64
-		friendshipID int64
-	}{targetUserID, friendshipID})
+		targetUserID    int64
+		friendshipID    int64
+		deleterUsername string
+	}{targetUserID, friendshipID, deleterUsername})
 	return nil
 }
 
@@ -660,6 +662,70 @@ func TestFriendDelete_DispatchesNotification(t *testing.T) {
 	}
 	if d.friendshipID != friendshipID {
 		t.Errorf("friendshipID: got %d, want %d", d.friendshipID, friendshipID)
+	}
+	if d.deleterUsername != bob.Username {
+		t.Errorf("username: got %q, want %q", d.deleterUsername, bob.Username)
+	}
+}
+
+// TestFriendDelete_MarksUnreadMessagesAsRead verifies that deleting a friendship marks any
+// pending unread messages between the participants as read, preventing phantom unread badges.
+func TestFriendDelete_MarksUnreadMessagesAsRead(t *testing.T) {
+	mock := &mockEventNotifier{}
+	env := setupFriendsTestEnv(t, 2, mock)
+	alice := env.users[0]
+	bob := env.users[1]
+
+	friendshipID := createPendingFriendship(t, env.router, alice.Auth, bob.Username)
+
+	// Accept the friendship
+	pathAccept := fmt.Sprintf("/api/protected/friends/%d", friendshipID)
+	recAccept := doTestRequest(env.router, http.MethodPatch, pathAccept, bob.Auth, map[string]string{"status": "accepted"})
+	if recAccept.Code != http.StatusOK {
+		t.Fatalf("accept status: got %d, want 200 OK: %s", recAccept.Code, recAccept.Body.String())
+	}
+
+	// Insert unread messages between alice and bob
+	msg1 := &models.Message{
+		SenderID:    alice.ID,
+		RecipientID: bob.ID,
+		Content:     "Hello Bob",
+		IsRead:      false,
+	}
+	msg2 := &models.Message{
+		SenderID:    bob.ID,
+		RecipientID: alice.ID,
+		Content:     "Hello Alice",
+		IsRead:      false,
+	}
+	_, err := env.handler.DB.NewInsert().Model(msg1).Exec(context.Background())
+	if err != nil {
+		t.Fatalf("failed to insert msg1: %v", err)
+	}
+	_, err = env.handler.DB.NewInsert().Model(msg2).Exec(context.Background())
+	if err != nil {
+		t.Fatalf("failed to insert msg2: %v", err)
+	}
+
+	// Bob deletes the friendship
+	pathDel := fmt.Sprintf("/api/protected/friends/%d", friendshipID)
+	recDel := doTestRequest(env.router, http.MethodDelete, pathDel, bob.Auth, nil)
+	if recDel.Code != http.StatusNoContent {
+		t.Fatalf("delete status: got %d, want 204 No Content: %s", recDel.Code, recDel.Body.String())
+	}
+
+	// Verify both messages are now marked as read
+	var unreadCount int
+	unreadCount, err = env.handler.DB.NewSelect().
+		Model((*models.Message)(nil)).
+		Where("((sender_id = ? AND recipient_id = ?) OR (sender_id = ? AND recipient_id = ?)) AND is_read = FALSE",
+			alice.ID, bob.ID, bob.ID, alice.ID).
+		Count(context.Background())
+	if err != nil {
+		t.Fatalf("failed to count unread messages: %v", err)
+	}
+	if unreadCount != 0 {
+		t.Errorf("unread messages count: got %d, want 0", unreadCount)
 	}
 }
 
