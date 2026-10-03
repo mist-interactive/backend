@@ -38,6 +38,16 @@ func TestLogin(t *testing.T) {
 			validate:       validateSuccessfulLogin(testUser.ID),
 		},
 		{
+			name: "Success - Correct credentials with email inferred",
+			requestBody: models.LoginRequest{
+				Username: testUser.Email,
+				Password: "password123",
+			},
+			expectedStatus: http.StatusOK,
+			expectJSON:     true,
+			validate:       validateSuccessfulLogin(testUser.ID),
+		},
+		{
 			name: "Failure - Correct user but incorrect password",
 			requestBody: models.LoginRequest{
 				Username: testUser.Username,
@@ -54,6 +64,25 @@ func TestLogin(t *testing.T) {
 				Password: "somepassword",
 			},
 			expectedStatus: http.StatusNotFound,
+			expectJSON:     false,
+			validate:       nil,
+		},
+		{
+			name: "Failure - Nonexistent email",
+			requestBody: models.LoginRequest{
+				Username: "nonexistent@testing.internal",
+				Password: "password123",
+			},
+			expectedStatus: http.StatusNotFound,
+			expectJSON:     false,
+			validate:       nil,
+		},
+		{
+			name: "Failure - Missing identifier",
+			requestBody: models.LoginRequest{
+				Password: "password123",
+			},
+			expectedStatus: http.StatusBadRequest,
 			expectJSON:     false,
 			validate:       nil,
 		},

@@ -4,6 +4,7 @@ import (
 	"context"
 	"dbBackend/models"
 	"fmt"
+	"errors"
 	"testing"
 	"time"
 )
@@ -98,3 +99,76 @@ func TestChat_RateLimit(t *testing.T) {
 		})
 	}
 }
+
+func TestHandleSendMsg(t *testing.T) {
+	t.Run("Rejects self messaging without dispatch or error", func(t *testing.T) {
+		hub, clients := setupTestHub(t, "alice")
+		alice := clients["alice"]
+
+		err := alice.HandleSendMsg(DMPayload{Username: "alice", Content: "talking to myself"})
+		if err != nil {
+			t.Errorf("expected nil error on self-message, got %v", err)
+		}
+		select {
+		case msg := <-hub.unicast:
+			t.Errorf("unexpected unicast message sent on self-message: %+v", msg)
+		default:
+		}
+	})
+
+	t.Run("Successfully saves message and dispatches DM to recipient", func(t *testing.T) {
+		hub, clients := setupTestHub(t, "alice", "bob")
+		alice := clients["alice"]
+		bob := clients["bob"]
+
+		now := time.Now()
+		mockStore := &mockDataStore{
+			saveMessageFunc: func(ctx context.Context, userID int64, recipient, content string) (*models.Message, error) {
+				return &models.Message{
+					ID:          123,
+					SenderID:    alice.UserID,
+					RecipientID: bob.UserID,
+					Content:     content,
+					CreatedAt:   now,
+				}, nil
+			},
+		}
+		hub.store = mockStore
+
+		err := alice.HandleSendMsg(DMPayload{Username: "bob", Content: "hey bob!"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		drainUnicast(hub)
+
+		msg, ok := readWSMessage(t, bob.Send, 50*time.Millisecond)
+		if !ok {
+			t.Fatalf("bob did not receive direct message")
+		}
+		if msg.Type != TypeDMRecv {
+			t.Errorf("expected type %s, got %s", TypeDMRecv, msg.Type)
+		}
+		payload := parsePayload[DMPayload](t, msg.Payload)
+		if payload.ID != 123 || payload.Username != "alice" || payload.Content != "hey bob!" {
+			t.Errorf("payload mismatch: %+v", payload)
+		}
+	})
+
+	t.Run("Returns error when DB save fails", func(t *testing.T) {
+		hub, clients := setupTestHub(t, "alice", "bob")
+		alice := clients["alice"]
+		mockStore := &mockDataStore{
+			saveMessageFunc: func(ctx context.Context, userID int64, recipient, content string) (*models.Message, error) {
+				return nil, errors.New("db failure")
+			},
+		}
+		hub.store = mockStore
+
+		err := alice.HandleSendMsg(DMPayload{Username: "bob", Content: "hello"})
+		if err == nil {
+			t.Errorf("expected error when DB save fails, got nil")
+		}
+	})
+}
+
