@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/uptrace/bun"
+	"golang.org/x/crypto/bcrypt"
 )
 
 func setupProfileTestRouter(t *testing.T) (*handlers.Handler, http.Handler, *rsa.PrivateKey) {
@@ -25,6 +26,7 @@ func setupProfileTestRouter(t *testing.T) (*handlers.Handler, http.Handler, *rsa
 	protected := handlers.NewGroup(mux, "/api/protected", h.JWTGuard)
 	protected.HandleFunc("GET /profile", h.ProfileGet)
 	protected.HandleFunc("PATCH /profile", h.ProfilePatch)
+	protected.HandleFunc("PATCH /password", h.PasswordChangePatch)
 	protected.HandleFunc("GET /profile/{username}", h.ProfileGetByUsername)
 	protected.HandleFunc("DELETE /profile", h.ProfileDelete)
 
@@ -505,4 +507,118 @@ func TestProfileDelete(t *testing.T) {
 			t.Errorf("expected different ID for new user, got same ID %d", newUser.ID)
 		}
 	})
+}
+
+func TestPasswordChangePatch(t *testing.T) {
+	ctx := context.Background()
+	_, router, privKey := setupProfileTestRouter(t)
+
+	tests := []struct {
+		name           string
+		setupUser      func(t *testing.T) AuthUser
+		payload        any
+		useAuth        bool
+		expectedStatus int
+		verifyDB       func(t *testing.T, u AuthUser)
+	}{
+		{
+			name: "Success: updates password with valid credentials",
+			setupUser: func(t *testing.T) AuthUser {
+				raw := testutil.MakeNTestUsers(t, testDB, 1)[0]
+				return makeAuthUsers(t, []*models.User{raw}, privKey)[0]
+			},
+			payload: models.PasswordChangeInput{
+				OldPassword: "password123",
+				NewPassword: "NewSecretPassword123!",
+			},
+			useAuth:        true,
+			expectedStatus: http.StatusNoContent,
+			verifyDB: func(t *testing.T, u AuthUser) {
+				var updated models.User
+				err := testDB.NewSelect().Model(&updated).Where("id = ?", u.ID).Scan(ctx)
+				if err != nil {
+					t.Fatalf("failed to query updated user: %v", err)
+				}
+				// Verify new password matches
+				if err := bcrypt.CompareHashAndPassword([]byte(updated.PWHash), []byte("NewSecretPassword123!")); err != nil {
+					t.Errorf("new password does not match updated hash: %v", err)
+				}
+				// Verify old password no longer matches
+				if err := bcrypt.CompareHashAndPassword([]byte(updated.PWHash), []byte("password123")); err == nil {
+					t.Errorf("old password unexpectedly still matches updated hash")
+				}
+			},
+		},
+		{
+			name: "Failure: rejects incorrect current password",
+			setupUser: func(t *testing.T) AuthUser {
+				raw := testutil.MakeNTestUsers(t, testDB, 1)[0]
+				return makeAuthUsers(t, []*models.User{raw}, privKey)[0]
+			},
+			payload: models.PasswordChangeInput{
+				OldPassword: "WrongPassword999!",
+				NewPassword: "NewSecretPassword123!",
+			},
+			useAuth:        true,
+			expectedStatus: http.StatusUnauthorized,
+		},
+		{
+			name: "Failure: rejects new password identical to current password",
+			setupUser: func(t *testing.T) AuthUser {
+				raw := testutil.MakeNTestUsers(t, testDB, 1)[0]
+				return makeAuthUsers(t, []*models.User{raw}, privKey)[0]
+			},
+			payload: models.PasswordChangeInput{
+				OldPassword: "password123",
+				NewPassword: "password123",
+			},
+			useAuth:        true,
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name: "Failure: rejects new password failing complexity requirements",
+			setupUser: func(t *testing.T) AuthUser {
+				raw := testutil.MakeNTestUsers(t, testDB, 1)[0]
+				return makeAuthUsers(t, []*models.User{raw}, privKey)[0]
+			},
+			payload: models.PasswordChangeInput{
+				OldPassword: "password123",
+				NewPassword: "alllowercase",
+			},
+			useAuth:        true,
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name: "Failure: rejects unauthenticated request",
+			setupUser: func(t *testing.T) AuthUser {
+				raw := testutil.MakeNTestUsers(t, testDB, 1)[0]
+				return makeAuthUsers(t, []*models.User{raw}, privKey)[0]
+			},
+			payload: models.PasswordChangeInput{
+				OldPassword: "password123",
+				NewPassword: "NewSecretPassword123!",
+			},
+			useAuth:        false,
+			expectedStatus: http.StatusUnauthorized,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			u := tc.setupUser(t)
+			var authHeader string
+			if tc.useAuth {
+				authHeader = u.Auth
+			}
+
+			rec := doTestRequest(router, http.MethodPatch, "/api/protected/password", authHeader, tc.payload)
+			if rec.Code != tc.expectedStatus {
+				t.Fatalf("status code: got %d, want %d (body: %s)", rec.Code, tc.expectedStatus, rec.Body.String())
+			}
+
+			if tc.verifyDB != nil {
+				tc.verifyDB(t, u)
+			}
+		})
+	}
 }
