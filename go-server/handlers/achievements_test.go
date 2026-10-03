@@ -26,7 +26,7 @@ func (m *mockMatchNotifier) NotifyFriendRequest(targetUserID int64, item models.
 func (m *mockMatchNotifier) NotifyFriendResponse(targetUserID int64, item models.FriendshipItemResponse) error {
 	return nil
 }
-func (m *mockMatchNotifier) NotifyFriendDeleted(targetUserID int64, friendshipID int64) error {
+func (m *mockMatchNotifier) NotifyFriendDeleted(targetUserID int64, friendshipID int64, deleterUsername string) error {
 	return nil
 }
 func (m *mockMatchNotifier) MatchFinished(payload models.MatchFinishedPayload) error { //the only notifier function that does anything, allows us to check that payload was sent correctly to websocket hub

@@ -3,6 +3,7 @@ package realtime
 import (
 	"context"
 	"dbBackend/models"
+	"fmt"
 	"errors"
 	"testing"
 	"time"
@@ -60,6 +61,34 @@ func TestChat_RateLimit(t *testing.T) {
 
 				drainUnicast(hub)
 				assertErrorMessage(t, alice, errRateLimitExceeded)
+			},
+		},
+		{
+			name: "HandleSendMsg rejects message and sends error when save message fails (not friends)",
+			test: func(t *testing.T) {
+				store := &mockDataStore{
+					saveMessageFunc: func(ctx context.Context, userID int64, recipient, content string) (*models.Message, error) {
+						return nil, fmt.Errorf("users are not friends")
+					},
+				}
+				hub := NewHub(store)
+				alice := &Client{
+					Hub:        hub,
+					UserID:     1,
+					Username:   "alice",
+					Send:       make(chan []byte, 10),
+					tokens:     chatBurstLimit,
+					lastRefill: time.Now(),
+				}
+				hub.clients[alice.UserID] = alice
+
+				err := alice.HandleSendMsg(DMPayload{Username: "bob", Content: "hello"})
+				if err != nil {
+					t.Fatalf("expected nil error returned from HandleSendMsg, got %v", err)
+				}
+
+				drainUnicast(hub)
+				assertErrorMessage(t, alice, errNotFriends)
 			},
 		},
 	}

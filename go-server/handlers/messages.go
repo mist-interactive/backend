@@ -62,6 +62,21 @@ func (h *Handler) MessageCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Recipient user not found", http.StatusBadRequest)
 		return
 	}
+
+	isFriend, err := h.DB.NewSelect().
+		Model((*models.Friendship)(nil)).
+		Where("((user_id = ? AND friend_id = ?) OR (user_id = ? AND friend_id = ?))", input.SenderID, recipient.ID, recipient.ID, input.SenderID).
+		Where("status = ?", models.StatusAccepted).
+		Exists(r.Context())
+	if err != nil {
+		HandleDBError(w, err, "checking friendship status")
+		return
+	}
+	if !isFriend {
+		slog.Warn("Message creation rejected: users are not friends", "sender_id", input.SenderID, "recipient_id", recipient.ID)
+		http.Error(w, "Cannot send message: users are not friends", http.StatusForbidden)
+		return
+	}
 	message := &models.Message{
 		SenderID:    input.SenderID,
 		RecipientID: recipient.ID,

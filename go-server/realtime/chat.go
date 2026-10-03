@@ -5,7 +5,10 @@ import (
 	"log/slog"
 )
 
-const errRateLimitExceeded = "You are sending messages too fast. Please wait a moment."
+const (
+	errRateLimitExceeded = "You are sending messages too fast. Please wait a moment."
+	errNotFriends        = "Cannot send message: you are not friends with this user."
+)
 
 func (c *Client) HandleSendMsg(payload DMPayload) error {
 	if payload.Username == c.Username {
@@ -21,8 +24,9 @@ func (c *Client) HandleSendMsg(payload DMPayload) error {
 
 	savedMsg, err := c.Hub.store.SaveMessage(context.Background(), c.UserID, payload.Username, payload.Content) //persist message in DB
 	if err != nil {
-		slog.Error("Failed to save direct message in DB", "sender", c.Username, "recipient", payload.Username, "error", err)
-		return err
+		slog.Warn("Failed to save direct message in DB", "sender", c.Username, "recipient", payload.Username, "error", err)
+		c.SendError(errNotFriends)
+		return nil
 	}
 	// encode the message to be sent
 	deliveryBytes, err := EncodeMessage(TypeDMRecv, DMPayload{
