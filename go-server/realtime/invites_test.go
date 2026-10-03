@@ -104,6 +104,18 @@ func TestInviteSend(t *testing.T) {
 			wantError:  "Cannot invite yourself to a match",
 		},
 		{
+			name:       "Failure: Self challenge rejected case-insensitively",
+			challenger: "alice",
+			target:     "ALICE",
+			wantError:  "Cannot invite yourself to a match",
+		},
+		{
+			name:         "Success: Delivers challenge case-insensitively",
+			challenger:   "alice",
+			target:       "BOB",
+			wantReceived: true,
+		},
+		{
 			name:       "Failure: Offline user rejected",
 			challenger: "alice",
 			target:     "offline_user",
@@ -162,14 +174,14 @@ func TestInviteSend(t *testing.T) {
 
 			if tc.wantError != "" {
 				assertErrorMessage(t, sender, tc.wantError)
-				if targetClient, isOnline := clients[tc.target]; isOnline && targetClient != sender {
+				if targetClient := hub.findClientByUsername(tc.target); targetClient != nil && targetClient != sender {
 					assertNoMessage(t, targetClient)
 				}
 			} else if tc.wantReceived {
-				targetClient := clients[tc.target]
+				targetClient := hub.findClientByUsername(tc.target)
 				assertInviteRecv(t, targetClient, tc.challenger)
 
-				key := inviteKey{challenger: tc.challenger, target: tc.target}
+				key := inviteKey{challenger: tc.challenger, target: targetClient.Username}
 				if createdAt, exists := hub.invites[key]; !exists || time.Since(createdAt) > 2*time.Second {
 					t.Errorf("hub.invites[%+v]: got exists=%v createdAt=%v, want freshly set", key, exists, createdAt)
 				}

@@ -29,7 +29,7 @@ func (h *Handler) CheckPassword(w http.ResponseWriter, r *http.Request) {
 	if strings.Contains(identifier, "@") {
 		query = query.Where("LOWER(email) = LOWER(?)", identifier)
 	} else {
-		query = query.Where("username = ?", identifier)
+		query = query.Where("LOWER(username) = LOWER(?)", identifier)
 	}
 	err = query.Scan(r.Context())
 	if err != nil {

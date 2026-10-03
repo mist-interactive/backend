@@ -3,6 +3,7 @@ package realtime
 import (
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 )
 
@@ -52,7 +53,7 @@ func (h *Hub) pruneExpiredInvites() {
 func (h *Hub) cleanUpInvites(username string) int {
 	cleaned := 0
 	for key := range h.invites {
-		if key.challenger == username {
+		if strings.EqualFold(key.challenger, username) {
 			delete(h.invites, key)
 			cleaned++
 			h.sendInviteCancel(key.target, username)
@@ -61,7 +62,7 @@ func (h *Hub) cleanUpInvites(username string) int {
 				"challenger", username,
 				"target", key.target,
 			)
-		} else if key.target == username {
+		} else if strings.EqualFold(key.target, username) {
 			delete(h.invites, key)
 			cleaned++
 			h.sendInviteCancel(key.challenger, username)
@@ -78,7 +79,7 @@ func (h *Hub) cleanUpInvites(username string) int {
 // onInviteSend validates an outgoing challenge, registers it in h.invites with a timestamp,
 // enforces duplicate prevention and mutual challenge safeguards, and delivers "match_invite_recv" to the target.
 func (h *Hub) onInviteSend(sender *Client, target string) {
-	if sender.Username == target {
+	if strings.EqualFold(sender.Username, target) {
 		slog.Warn("Match invite rejected: self challenge", "challenger", sender.Username)
 		sender.SendError("Cannot invite yourself to a match")
 		return
@@ -90,6 +91,7 @@ func (h *Hub) onInviteSend(sender *Client, target string) {
 		sender.SendError(fmt.Sprintf("User '%s' is not online", target))
 		return
 	}
+	target = targetClient.Username
 
 	now := time.Now()
 
@@ -137,6 +139,9 @@ func (h *Hub) onInviteSend(sender *Client, target string) {
 // If accepted, it deletes the invite and launches createAndStartMatch in a separate goroutine.
 // If declined, it deletes the invite and forwards the decline to the challenger.
 func (h *Hub) onInviteResponse(sender *Client, challenger, status string) {
+	if targetClient := h.findClientByUsername(challenger); targetClient != nil {
+		challenger = targetClient.Username
+	}
 	key := inviteKey{challenger: challenger, target: sender.Username}
 	createdAt, exists := h.invites[key]
 	if !exists || time.Since(createdAt) > inviteTTL {
@@ -186,6 +191,9 @@ func (h *Hub) onInviteResponse(sender *Client, challenger, status string) {
 // onInviteCancel deletes a pending challenge from h.invites and sends "match_invite_cancel"
 // to the target player to dismiss the challenge prompt on their client.
 func (h *Hub) onInviteCancel(sender *Client, target string) {
+	if targetClient := h.findClientByUsername(target); targetClient != nil {
+		target = targetClient.Username
+	}
 	key := inviteKey{challenger: sender.Username, target: target}
 	createdAt, exists := h.invites[key]
 	if !exists || time.Since(createdAt) > inviteTTL {

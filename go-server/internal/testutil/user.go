@@ -23,7 +23,7 @@ func MakeTestUser(t *testing.T, testDB *bun.DB) (*models.User, func()) {
 		candidate := fmt.Sprintf("test_user_%s", generateRandomString(8))
 		exists, err := testDB.NewSelect().
 			Model((*models.User)(nil)).
-			Where("username = ?", candidate).
+			Where("LOWER(username) = LOWER(?)", candidate).
 			Exists(ctx)
 		if err != nil {
 			t.Fatalf("Error checking database while finding test username: %v", err)
@@ -47,7 +47,7 @@ func MakeTestUser(t *testing.T, testDB *bun.DB) (*models.User, func()) {
 			defer cleanupCancel()
 			_, err := testDB.NewDelete().
 				Model((*models.User)(nil)).
-				Where("username = ?", uniqueName).
+				Where("LOWER(username) = LOWER(?)", uniqueName).
 				Exec(cleanupCtx)
 			if err != nil {
 				t.Logf("Warning: Failed to clean up test user %s: %v", uniqueName, err)
