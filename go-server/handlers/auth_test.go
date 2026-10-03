@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"dbBackend/handlers"
@@ -31,6 +32,16 @@ func TestLogin(t *testing.T) {
 			name: "Success - Correct credentials",
 			requestBody: models.LoginRequest{
 				Username: testUser.Username,
+				Password: "password123",
+			},
+			expectedStatus: http.StatusOK,
+			expectJSON:     true,
+			validate:       validateSuccessfulLogin(testUser.ID),
+		},
+		{
+			name: "Success - Correct credentials with mixed-case username",
+			requestBody: models.LoginRequest{
+				Username: strings.ToUpper(testUser.Username),
 				Password: "password123",
 			},
 			expectedStatus: http.StatusOK,

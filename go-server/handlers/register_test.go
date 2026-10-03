@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -55,6 +56,21 @@ func TestTryRegister_Integration(t *testing.T) {
 				return models.RegisterRequest{
 					Username: newU.Username,
 					Email:    u.Email,
+					Password: "password123",
+				}
+			},
+			expectedStatus: http.StatusConflict,
+		},
+		{
+			name: "Failure: try to register username differing only by case",
+			setup: func(t *testing.T) models.RegisterRequest {
+				u, cleanup := testutil.MakeTestUser(t, testDB)
+				testutil.RegisterUser(t, u, testDB)
+				t.Cleanup(cleanup)
+				newU, _ := testutil.MakeTestUser(t, testDB)
+				return models.RegisterRequest{
+					Username: strings.ToUpper(u.Username),
+					Email:    newU.Email,
 					Password: "password123",
 				}
 			},

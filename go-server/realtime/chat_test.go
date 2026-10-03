@@ -155,7 +155,22 @@ func TestHandleSendMsg(t *testing.T) {
 		}
 	})
 
-	t.Run("Returns error when DB save fails", func(t *testing.T) {
+	t.Run("Rejects self messaging case-insensitively without dispatch or error", func(t *testing.T) {
+		hub, clients := setupTestHub(t, "Alice")
+		alice := clients["Alice"]
+
+		err := alice.HandleSendMsg(DMPayload{Username: "alice", Content: "talking to myself"})
+		if err != nil {
+			t.Errorf("expected nil error on self-message, got %v", err)
+		}
+		select {
+		case msg := <-hub.unicast:
+			t.Errorf("unexpected unicast message sent on self-message: %+v", msg)
+		default:
+		}
+	})
+
+	t.Run("Sends error to client when DB save fails", func(t *testing.T) {
 		hub, clients := setupTestHub(t, "alice", "bob")
 		alice := clients["alice"]
 		mockStore := &mockDataStore{
@@ -166,9 +181,11 @@ func TestHandleSendMsg(t *testing.T) {
 		hub.store = mockStore
 
 		err := alice.HandleSendMsg(DMPayload{Username: "bob", Content: "hello"})
-		if err == nil {
-			t.Errorf("expected error when DB save fails, got nil")
+		if err != nil {
+			t.Fatalf("expected nil error when DB save fails, got %v", err)
 		}
+		drainUnicast(hub)
+		assertErrorMessage(t, alice, errNotFriends)
 	})
 }
 

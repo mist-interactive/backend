@@ -236,7 +236,7 @@ func (h *Handler) getUserByUsername(ctx context.Context, target string) (*models
 	user := new(models.User)
 	err := h.DB.NewSelect().
 		Model(user).
-		Where("username = ?", target).
+		Where("LOWER(username) = LOWER(?)", target).
 		Scan(ctx)
 	if err != nil {
 		return nil, err
