@@ -60,6 +60,16 @@ func TestDecodeAndValidate_RegisterRequest(t *testing.T) {
 			jsonBody:    `{"username": "paavo on paras!", "email": "paavo@pesusieni.fi", "password": "UPPERCASE!!!"}`,
 			expectError: true,
 		},
+		{
+			name:        "Username contains tilde (cannot register deleted user format)",
+			jsonBody:    `{"username": "deleted_user~42", "email": "paavo@pesusieni.fi", "password": "Password123"}`,
+			expectError: true,
+		},
+		{
+			name:        "Email with single-label internal domain rejected",
+			jsonBody:    `{"username": "paavo", "email": "deleted_user~42@internal", "password": "Password123"}`,
+			expectError: true,
+		},
 	}
 
 	for _, tt := range tests {
