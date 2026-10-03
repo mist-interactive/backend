@@ -206,7 +206,7 @@ func (h *Handler) ProfileDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback() //register the Rollback to run if we exit befor committing the transaction
-	anonymized := fmt.Sprintf("deleted_user_%d", userID)
+	anonymized := fmt.Sprintf("deleted_user~%d", userID)
 	now := time.Now()
 
 	// Add things to the transaction
