@@ -47,6 +47,7 @@ type EventNotifier interface {
 	NotifyFriendRequest(targetUserID int64, item models.FriendshipItemResponse) error
 	NotifyFriendResponse(targetUserID int64, item models.FriendshipItemResponse) error
 	NotifyFriendDeleted(targetUserID int64, friendshipID int64) error
+	NotifyMutualPresence(userAID, userBID int64, usernameA, usernameB string) error
 	MatchFinished(payload models.MatchFinishedPayload) error
 }
 

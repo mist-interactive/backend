@@ -211,3 +211,78 @@ func TestHub_NotifyUser_BufferFull(t *testing.T) {
 		t.Error("expected error when unicast buffer is full, got nil")
 	}
 }
+
+// TestHub_NotifyPresence verifies that NotifyPresence encodes a TypePresenceUpdate
+// websocket envelope with the given username and online status and routes it to targetUserID.
+func TestHub_NotifyPresence(t *testing.T) {
+	hub := newTestHub()
+	targetUserID := int64(42)
+	username := "alice"
+
+	err := hub.NotifyPresence(targetUserID, username, true)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	payload := expectUnicastMessage[PresenceUpdatePayload](t, hub.unicast, targetUserID, TypePresenceUpdate)
+	if payload.Username != username {
+		t.Errorf("got username %s, want %s", payload.Username, username)
+	}
+	if !payload.OnlineStatus {
+		t.Errorf("got online_status %v, want true", payload.OnlineStatus)
+	}
+}
+
+// TestHub_NotifyMutualPresence verifies that NotifyMutualPresence sends mutual TypePresenceUpdate
+// websocket messages to both user A and user B informing them that the other is online.
+func TestHub_NotifyMutualPresence(t *testing.T) {
+	hub := newTestHub()
+	userAID := int64(10)
+	userBID := int64(20)
+	usernameA := "alice"
+	usernameB := "bob"
+
+	err := hub.NotifyMutualPresence(userAID, userBID, usernameA, usernameB)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// User A should receive presence update informing them that User B is online
+	msgForA := expectUnicastMessage[PresenceUpdatePayload](t, hub.unicast, userAID, TypePresenceUpdate)
+	if msgForA.Username != usernameB {
+		t.Errorf("user A payload: got username %s, want %s", msgForA.Username, usernameB)
+	}
+	if !msgForA.OnlineStatus {
+		t.Errorf("user A payload: got online_status %v, want true", msgForA.OnlineStatus)
+	}
+
+	// User B should receive presence update informing them that User A is online
+	msgForB := expectUnicastMessage[PresenceUpdatePayload](t, hub.unicast, userBID, TypePresenceUpdate)
+	if msgForB.Username != usernameA {
+		t.Errorf("user B payload: got username %s, want %s", msgForB.Username, usernameA)
+	}
+	if !msgForB.OnlineStatus {
+		t.Errorf("user B payload: got online_status %v, want true", msgForB.OnlineStatus)
+	}
+}
+
+// TestHub_NotifyMutualPresence_BufferFull verifies that NotifyMutualPresence propagates
+// errors up the chain when delivery to the unicast channel fails.
+func TestHub_NotifyMutualPresence_BufferFull(t *testing.T) {
+	hub := newTestHub()
+	capacity := cap(hub.unicast)
+
+	// Fill unicast buffer to capacity so subsequent sends fail
+	for i := range capacity {
+		err := hub.NotifyUser(int64(i), fmt.Appendf(nil, "fill-%d", i))
+		if err != nil {
+			t.Fatalf("unexpected error filling buffer at index %d: %v", i, err)
+		}
+	}
+
+	err := hub.NotifyMutualPresence(1, 2, "alice", "bob")
+	if err == nil {
+		t.Fatalf("expected error from NotifyMutualPresence when buffer is full, got nil")
+	}
+}
+

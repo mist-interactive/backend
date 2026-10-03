@@ -2,6 +2,7 @@ package realtime
 
 import (
 	"dbBackend/models"
+	"errors"
 	"fmt"
 )
 
@@ -49,4 +50,25 @@ func (h *Hub) MatchFinished(payload models.MatchFinishedPayload) error {
 	}
 
 	return nil
+}
+
+// NotifyPresence delivers a real-time presence update regarding username to targetUserID.
+func (h *Hub) NotifyPresence(targetUserID int64, username string, isOnline bool) error {
+	data, err := EncodeMessage(TypePresenceUpdate, PresenceUpdatePayload{
+		Username:     username,
+		OnlineStatus: isOnline,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to encode presence update: %w", err)
+	}
+	return h.NotifyUser(targetUserID, data)
+}
+
+// NotifyMutualPresence dispatches mutual online presence updates between user A and user B,
+// informing user A that user B is online and user B that user A is online.
+// Any errors encountered while delivering the notifications are joined and returned.
+func (h *Hub) NotifyMutualPresence(userAID, userBID int64, usernameA, usernameB string) error {
+	errA := h.NotifyPresence(userAID, usernameB, true)
+	errB := h.NotifyPresence(userBID, usernameA, true)
+	return errors.Join(errA, errB)
 }
