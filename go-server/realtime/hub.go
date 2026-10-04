@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 )
 
@@ -94,7 +95,7 @@ func (h *Hub) handleUnregister(client *Client) {
 
 func (h *Hub) findClientByUsername(username string) *Client {
 	for _, client := range h.clients {
-		if client.Username == username {
+		if strings.EqualFold(client.Username, username) {
 			return client
 		}
 	}

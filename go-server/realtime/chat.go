@@ -3,6 +3,7 @@ package realtime
 import (
 	"context"
 	"log/slog"
+	"strings"
 )
 
 const (
@@ -11,7 +12,7 @@ const (
 )
 
 func (c *Client) HandleSendMsg(payload DMPayload) error {
-	if payload.Username == c.Username {
+	if strings.EqualFold(payload.Username, c.Username) {
 		slog.Warn("Direct message rejected: self message", "username", c.Username)
 		return nil // Cannot DM yourself
 	}
